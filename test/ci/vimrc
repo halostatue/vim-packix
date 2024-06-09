@@ -1,0 +1,26 @@
+" vim9script
+
+runtime defaults.vim
+filetype plugin indent on
+
+" source /home/packix/testjob.vim
+
+packadd vim-packix
+
+" import autoload 'packix.vim'
+
+" call packix.Setup((px: packix.Manager) => {
+"   echom typename(px)
+"   px.Add('junegunn/fzf.vim')
+"   # packix.Add('junegunn/fzf', { do: './install --all && ln -s $(pwd) ~/.fzf' })
+" })
+
+" PackixInstall
+
+call packix#init()
+call packix#add('junegunn/fzf.vim', {
+      \   'requires': [
+      \     { 'name': 'junegunn/fzf', 'opts': { 'do': './install --all && ln -s $(pwd) ~/.fzf' }}
+      \   ]
+      \ })
+call packix#install()

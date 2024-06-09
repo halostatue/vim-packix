@@ -1,0 +1,19 @@
+services:
+  packix_test:
+    build:
+      context: .
+    configs:
+      - source: autoload_packix_vim
+        target: /home/packix/.vim/pack/packix/opt/vim-packix/autoload/packix.vim
+      - source: import_packix_vim
+        target: /home/packix/.vim/pack/packix/opt/vim-packix/import/packix.vim
+      - source: vimrc
+        target: /home/packix/.vim/vimrc
+
+configs:
+  autoload_packix_vim:
+    file: ../../autoload/packix.vim
+  import_packix_vim:
+    file: ../../import/packix.vim
+  vimrc:
+    file: vimrc
