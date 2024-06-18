@@ -3,7 +3,7 @@ scriptencoding utf-8
 import "packix.vim"
 
 function! packix#version()
-  call s:packix.Version()
+  return s:packix.Version()
 endfunction
 
 function! packix#setup(Callback, opts = {})
@@ -46,6 +46,6 @@ function! packix#plugin_names()
   return s:packix.PluginNames()
 endfunction
 
-function! packix#get_plugin()
-  return s:packix.GetPlugin()
+function! packix#get_plugin(name)
+  return s:packix.GetPlugin(a:name)
 endfunction
