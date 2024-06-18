@@ -1436,6 +1436,14 @@ export class Manager implements IManager
     return this._plugins[name].GetInfo()
   enddef
 
+  def HasPlugin(name: string): bool
+    return this._plugins->has_key(name)
+  enddef
+
+  def IsPluginInstalled(name: string): bool
+    return this._plugins->has_key(name) && this._plugins[name].installed
+  enddef
+
   def _FindPluginBySha(sha: string): string
     var sha_re = printf('^%s', sha)
 
@@ -1876,6 +1884,14 @@ enddef
 
 export def GetPlugin(name: string): PluginInfo
   return EnsureInstance().GetPlugin(name)
+enddef
+
+export def HasPlugin(name: string): bool
+  return EnsureInstance().HasPlugin(name)
+enddef
+
+export def IsPluginInstalled(name: string): bool
+  return EnsureInstance().IsPluginInstalled(name)
 enddef
 
 export def Version(): string

@@ -49,3 +49,11 @@ endfunction
 function! packix#get_plugin(name)
   return s:packix.GetPlugin(a:name)
 endfunction
+
+function! packix#has_plugin(name)
+  return s:packix.HasPlugin(a:name)
+endfunction
+
+function! packix#is_plugin_installed(name)
+  return s:packix.IsPluginInstalled(a:name)
+endfunction
