@@ -900,7 +900,7 @@ class Plugin
     return printf(
       'git clone --progress %s %s --depth %s --no-single-branch%s',
       this.url->shellescape(),
-      this.url->shellescape(),
+      this.dir->shellescape(),
       depth,
       target
     )
@@ -976,7 +976,7 @@ def LoadPlugin(wanted: Plugin)
   for path in ['plugin/**/*.vim', 'after/plugin/**/*.vim']
     var full_path = printf('%s/%s', wanted.dir, path)
 
-    if !full_path->empty()->glob()
+    if !full_path->glob()->empty()
       silent exec 'source ' .. full_path
     endif
   endfor
@@ -1404,7 +1404,7 @@ export class Manager implements IManager
       content->add('Commit:       ' .. plugin.commit)
     endif
 
-    if !plugin.do->empty() && plugin->type(.do) ==? type('')
+    if !plugin.do->empty() && plugin.do->type() ==? type('')
       content->extend(['', 'Post Install Command:', '    ' .. plugin.do])
     endif
 
