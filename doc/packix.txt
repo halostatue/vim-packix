@@ -508,20 +508,38 @@ Returns a list of defined plugin names. These may or may not be installed.
 packix.GetPlugin({name}: string): packix.PluginInfo
 packix#GetPlugin({name}: string): packix#PluginInfo
 
-Gets the plugin info for a plugin identified by {name}.
+Gets the plugin info for a plugin identified by {name}, which may be either
+the plugin URL, a GitHub shorthand URL, or the resolved plugin name.
+>
+      packix.GetPlugin('fatih/vim-go')
+      packix.GetPlugin('https://github.com/fatih/vim-go')
+      packix.GetPlugin('vim-go')
+<
 
                                       *packix.HasPlugin()* *packix#HasPlugin()*
 packix.HasPlugin({name}: string): bool
 packix#HasPlugin({name}: string): bool
 
-Returns `true` if a plugin identified by {name} is defined.
+Returns `true` if a plugin identified by {name} is defined, which may be either
+the plugin URL, a GitHub shorthand URL, or the resolved plugin name.
+>
+      packix.HasPlugin('fatih/vim-go')
+      packix.HasPlugin('https://github.com/fatih/vim-go')
+      packix.HasPlugin('vim-go')
+<
 
                       *packix.IsPluginInstalled()* *packix#IsPluginInstalled()*
 packix.IsPluginInstalled({name}: string): bool
 packix#IsPluginInstalled({name}: string): bool
 
 Returns `true` if a plugin identified by {name} is both defined and currently
-installed.
+installed, which may be either the plugin URL, a GitHub shorthand URL, or the
+resolved plugin name.
+>
+      packix.IsPluginInstalled('fatih/vim-go')
+      packix.IsPluginInstalled('https://github.com/fatih/vim-go')
+      packix.IsPluginInstalled('vim-go')
+<
 
                                   *packix.Version()* *packix#Version()*
 packix.Version(): string
