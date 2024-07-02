@@ -1,4 +1,4 @@
-packix.txt	packix	Last change: 2024-06-15
+packix.txt         packix         Last change: 2024-06-15
 
 PACKIX - TABLE OF CONTENTS                                *packix* *packix-toc*
 ==============================================================================
@@ -35,13 +35,13 @@ under `opt` (usually `~/.vim/pack`).
 >
     # Linux, macOS, WSL, *BSD, etc.
     git clone https://github.com/halostatue/vim-packix ~/.vim/pack/packix/opt/vim-packix
-    
+
     # Windows
     git clone https://github.com/halostatue/vim-packix ~/vimfiles/pack/packix/opt/vim-packix
 <
 
 < Automatic Installation >____________________________________________________~
-							  *packix-auto-install*
+                                                          *packix-auto-install*
 
 Automatic installation can be done with a bit of scripting in your `vimrc`. The
 script below will add `~/.local/share/vim/site` to `&packpath`, and on startup
@@ -52,11 +52,11 @@ will check to see if packix is installed and clone it to
     vim9script
 
     const xdg_data_path = exists('$XDG_DATA_PATH') ?
-	$XDG_DATA_PATH : expand('~/.local/share')
+         $XDG_DATA_PATH : expand('~/.local/share')
     const vim_site = xdg_data_path .. '/vim/site'
 
     if &packpath !~# vim_site
-	&packpath = vim_site .. ',' .. &packpath
+         &packpath = vim_site .. ',' .. &packpath
     endif
 
     const pack_root = vim_site .. '/pack/packix/opt'
@@ -72,8 +72,8 @@ will check to see if packix is installed and clone it to
       silent execute command
 
       augroup install-vim-packix
-	autocmd!
-	autocmd VimEnter * if exists(':PackixInstall') == 2 | PackixInstall | endif
+         autocmd!
+         autocmd VimEnter * if exists(':PackixInstall') == 2 | PackixInstall | endif
       augroup END
     endif
 <
@@ -85,18 +85,18 @@ As packix is written with |vim9| script, it offers typed functions for use
 with |:vim9script| configuration files, and |autoload-scripts| for use with
 old-style scripts.
 
-Package selection is offered through either `packix.Setup` (`packix#setup`) or
-`packix.Init` (`packix#init`), offering different levels of control.
+Package selection is offered through either `Setup` or `Init`, offering
+different levels of control.
 
 After either has been set up, reload your `vimrc` and run `:PackixInstall`,
 which will install the selected plugins and run any post-install hooks
 required.
 
-If a plugin’s installation or hook fails, the plugin line in the output window
+If a plugin's installation or hook fails, the plugin line in the output window
 will include the most recent output line. To view more, press `E` on the
 plugin line to view the whole output for the failed step.
 
-SETUP                                                     *packix-usage-setup*
+SETUP                                                      *packix-usage-setup*
 
 The `Setup` function adds `:PackixInstall`, `:PackixUpdate`, `:PackixClean`,
 and `:PackixStatus` commands that use a callback |Funcref| or |lambda| to
@@ -107,10 +107,10 @@ Using `vim9script`:
 
 >
     vim9script
-    
+
     packadd vim-packix
-    import 'packix.vim'
-    
+    import autoload 'packix.vim'
+
     packix.Setup((px: packix.Manager) => {
       px.Add('halostatue/vim-packix', { type: 'opt' })
       px.Add('junegunn/fzf.vim', {
@@ -123,15 +123,15 @@ Using `vim9script`:
       px.Add('morhetz/gruvbox')
       px.Add('hrsh7th/vim-vsnip-integ', { requires: ['hrsh7th/vim-vsnip'] })
       px.Local('~/my_vim_plugins/my_awesome_plugin')
-    
+
       # Provide full URL; useful if you want to clone from somewhere else than
       # GitHub.
       px.Add('https://my.other.public.git/tpope/vim-fugitive.git')
-    
+
       # Provide SSH-based URL; useful if you have write access to a repository
       # and wish to push to it
       px.Add('git@github.com:mygithubid/myrepo.git')
-    
+
       # Loaded only for specific filetypes on demand.
       # Requires autocommand definitions to run `packadd` as required, see
       # below for examples.
@@ -142,7 +142,7 @@ Using `vim9script`:
       px.Add('neoclide/coc.nvim', { do: function('InstallCoc') })
       px.Add('sonph/onehalf', { rtp: 'vim/' })
     })
-    
+
     augroup packix_filetype
       autocmd!
       autocmd FileType javascript packadd vim-js-file-import
@@ -154,14 +154,14 @@ Using legacy Vim script:
 
 >
     scriptencoding utf-8
-    
+
     if &compatible
       set nocompatible
     endif
-    
+
     packadd vim-packix
-    
-    call packix#setup({ packix ->
+
+    call packix#Setup({ packix ->
       px.Add('halostatue/vim-packix', { 'type': 'opt' })
       px.Add('junegunn/fzf.vim',
             \ {
@@ -174,15 +174,15 @@ Using legacy Vim script:
       px.Add('morhetz/gruvbox')
       px.Add('hrsh7th/vim-vsnip-integ', { 'requires': ['hrsh7th/vim-vsnip'] })
       px.Add('~/my_vim_plugins/my_awesome_plugin')
-    
+
       " Provide full URL; useful if you want to clone from somewhere else than
       GitHub.
       px.Add('https://my.other.public.git/tpope/vim-fugitive.git')
-    
+
       " Provide SSH-based URL; useful if you have write access to a repository
       and " wish to push to it
       px.Add('git@github.com:mygithubid/myrepo.git')
-    
+
       " Loaded only for specific filetypes on demand.
       " Requires autocommand definitions to run `packadd` as required, see
       below for " examples.
@@ -192,14 +192,14 @@ Using legacy Vim script:
       px.Add('neoclide/coc.nvim', { 'do': function('InstallCoc') })
       px.Add('sonph/onehalf', { 'rtp': 'vim/' })
     })
-    
+
     " This could also be done with a function reference:
-    
+
     function! s:packix_init(packix)
       a:packix.Add('vimwiki/vimwiki', { 'type': 'opt' })
     endfunction
-    
-    call packix#setup(function('s:packix_init'))
+
+    call packix#Setup(function('s:packix_init'))
 <
 
 INIT                                                        *packix-usage-init*
@@ -211,36 +211,34 @@ Using `vim9script`:
 
 >vim
     vim9script
-    
+
     def PackixInit()
       packadd vim-packix
-      import 'packix.vim'
-    
+      import autoload 'packix.vim'
+
       packix.Init()
       packix.Add('halostatue/vim-packix', { type: 'opt' })
       packix.Add('vimwiki/vimwiki', { type: 'opt' })
     enddef
-    
-    command! -nargs=* -bar PackixInstall call <ScriptCmd>PackixInit() | call packix#install(<args>)
-    command! -nargs=* -bar PackixUpdate call <ScriptCmd>PackixInit() | call packix#update(<args>)
-    command! -bar PackixClean call <ScriptCmd>PackixInit() | call packix#clean()
-    command! -bar PackixStatus call <ScriptCmd>PackixInit() | call packix#status()
+
+    command! -nargs=* -bar PackixInstall call <ScriptCmd>PackixInit() | call packix#Install(<args>)
+    command! -nargs=* -bar PackixUpdate call <ScriptCmd>PackixInit() | call packix#Update(<args>)
+    command! -bar PackixClean call <ScriptCmd>PackixInit() | call packix#Clean()
+    command! -bar PackixStatus call <ScriptCmd>PackixInit() | call packix#Status()
 <
 
 FUNCTIONS                                                    *packix-functions*
 ==============================================================================
 
-All of the plugins documented here are available via |import| or through
-|autoload| aliases. Using legacy Vim script, read |legacy-import| for how to
-use imports. In the examples below, the Vim 9 script (assuming `import
-'packix.vim'`) and autoload functions versions are shown.
+All of the plugins documented here are available via |import-autoload| or
+through |autoload| prefixes (`packix#`). Using legacy Vim script, read
+|legacy-import| for how to use imports. In the examples below, the Vim 9
+script (assuming `import autoload 'packix.vim'`) and autoload functions
+versions are shown.
 
-PACKIX.SETUP                                      *packix.setup* *packix#setup*
-
->
-    packix.Setup(Callback: string | Funcref, opts: dict<any> = {}): void
-    packix#setup(Callback, opts = {})
-<
+                                              *packix.Setup()* *packix#Setup()*
+packix#Setup({Callback}: string | Funcref, [opts]: dict<any> = {}): void
+packix.Setup({Callback}: string | Funcref, [opts]: dict<any> = {}): void
 
 This is a small wrapper around |packix.Init| and related functions, described
 below. It does the following:
@@ -252,18 +250,15 @@ below. It does the following:
 - calls the appropriate function for the command (|packix.Install|,
   |packix.Update|, |packix.Clean|, or |packix.Status|).
 
-If the `Callback` parameter is a |String|, `packix.Setup` will attempt to
+If the {Callback} parameter is a |String|, `packix.Setup` will attempt to
 create a |Funcref| from it. See |packix.Init| for the possible keys and values
-of the `opts` parameter.
+of the {opts} parameter.
 
-PACKIX.INIT                                         *packix.init* *packix#init*
+                                                *packix.Init()* *packix#Init()*
+packix.Init([opts]: dict<any> = {}): void
+packix#Init([opts]: dict<any> = {}): void
 
->
-    packix.Init(opts: dict<any> = {}): void
-    packix#init(opts = {})
-<
-
-Initializes the `packix.Manager` instance. The main configuration options are:
+Initializes the `packix.Manager` instance. The main configuration {opts} are:
 
 - `depth` (|Number|, default `5`): The `--depth` value to use when cloning.
 
@@ -273,11 +268,11 @@ Initializes the `packix.Manager` instance. The main configuration options are:
 - `window_cmd` (|String|, default `vertical topleft new`): The command to use
   to open the packix window.
 
-Secondary options which are discouraged from configuration are:
+Secondary {opts} supported but discouraged from use are:
 
 - `dir` (|String|, default special): The directory to use for package
-  installation. By default the `dir` is derived from the _first_ directory
-  from |'packpath'|, which is `~/vimfiles/pack/packix` on Windows or
+  installation. By default the `dir` is derived from the first directory from
+  |'packpath'|, which is `~/vimfiles/pack/packix` on Windows or
   `~/.vim/pack/packix` everywhere else.
 
   The `packix` directory _must_ be found in |'packpath'|, so if you wish to
@@ -297,26 +292,17 @@ Secondary options which are discouraged from configuration are:
 - `disable_default_mappings` (|Boolean|, default `false`): If `true`, all
   default mappings for the packix buffer are disabled.
 
-PACKIX.ADD                                            *packix.add* *packix#add*
+                                                  *packix.Add()* *packix#Add()*
+packix.Add({url}: string, [opts]: dict<any> = {}): void
+packix#Add({url}: string, [opts]: dict<any> = {}): void
 
->
-    packix.Add(url: string, options: dict<any> = {}): void
-    packix#add(url, opts = {})
-<
+Adds the plugin found at {url} with {opts} The {url} may be a shorthand value,
+`owner/repo`, which is expanded to `https://github.com/owner/repo`.
+Full URLs may be provided to clone from hosts other than GitHub
+(`https://bitbucket.org/owner/repo.git`) and SSH-based URLs may be provided
+(`git@github.com:owner/repo.git`), which would allow read/write access.
 
-                                              *packix.add-url* *packix#add-url*
-
-`url`                                  The |String| URL to the git repository.
-
-As a shorthand, `owner/repo` is a shorthand for
-`https://github.com/owner/repo`. Full URLs may be provided to clone from hosts
-other than GitHub (`https://bitbucket.org/owner/repo.git`) and SSH-based URLs
-may be provided (`git@github.com:owner/repo.git`), which would allow
-read/write access.
-
-                                      *packix.add-options* *packix#add-options*
-
-`options`                              The options for installation.
+Installation {opts} may also be provided:
 
 - `name` (|String|, default special): An optional custom name for the plugin.
   If omitted, the name is derived from the last part of the URL parameter
@@ -341,11 +327,14 @@ read/write access.
 - `rtp` (|String|): A custom |'runtimepath'| used with some repositories
   (usually colour schemes) where the associated Vim plugin is in
   a subdirectory. Packix creates a symbolic link from the specified
-  subdirectory to the packix plugin folder. If the `type` of the package is
-  `opt`, then `packadd {plugin}__{rtp}` is required to load the plugin
-  properly. For example, with the colour scheme `onehalf`
-  (`packix.Add('sonph/onehalf', { rtp: 'vim/', type: 'opt' }`), the command to
-  load it would be `packadd onehalf__vim`.
+  subdirectory to the packix plugin folder.
+
+  If the `type` of the package is `opt`, then the command to load the plugin
+  is `packadd {plugin}__{rtp}` instead of just `packadd {plugin}`:
+  >
+    packix.Add('sonph/onehalf', { rtp: 'vim/', type: 'opt' })
+    packadd onehalf__vim
+  <
 
 - `do` (|String| or |Funcref|): The Hook to run after the plugin is installed
   or updated. See examples below.
@@ -358,75 +347,65 @@ read/write access.
   dependency it may be specified without using a list. The values within the
   `requires` list may be either |String| (the plugin URL) or a |Dict| with
   `url` and `opts` keys. See examples below. value (`'vimwiki/vimwiki'`) or
-  a |Dict| value (`{ url: 'vimwiki/vimwiki', opts: { type: 'opt' }`). Note
-  that required plugins do _not_ inherit any options from the parent.
+  a |Dict| value (`{ url: 'vimwiki/vimwiki', opts: { type: 'opt' }`). Required
+  plugins do not inherit any options from the parent.
+
+- `on` (special): On-demand plugins (`{ type: 'opt' }`) can be loaded with the
+  command (|String|) or commands (|List| of |String|) specified in this
+  option. The `on` option is ignored if the plugin `type` is 'start'.
+  >
+     packix.Add('tpope/vim-rake', { type: 'opt', on: 'Rake' })
+     packix.Add('tpope/vim-rails',
+          { type: 'opt', on: ['Rails', 'Generate', 'Runner'] })
+  <
 
 < Post-install Hooks >________________________________________________________~
 
 Post-install `do` hooks can be defined in three ways:
 
 1. As a |Funcref| that takes the plugin info as an argument.
-
    >
       packix.Add('junegunn/fzf',
         { do: (plugin) => exe plugin.dir .. '/install.sh --all' }
       )
-      packix.Add('junegunn/fzf', { 'do': function('InstallFzf') })
-      
-      function! InstallFzf(plugin) abort
+      packix.Add('junegunn/fzf', { do: function('InstallFzf') })
+
+      def InstallFzf(plugin: packix.Plugin)
         exe a:plugin.dir .. '/install.sh --all'
-      endfunction
-  <
+      enddef
+   <
 
 2. As a |String| that starts with `:`, indicating a Vim command to run.
-
-  >
+   >
       packix.Add('fatih/vim-go', { do: ':GoInstallBinaries' })
-  <
+   <
 
 3. As a |String| that does not start with `:`, indicating a command to run as
    a shell command in the plugin directory.
-
-  >
+   >
       packix.Add('junegunn/fzf', { do: './install --all'})
       packix.Add('kristijanhusak/vim-js-file-import', { do: 'npm install' })
-  <
+   <
 
-PACKIX.LOCAL                                      *packix.local* *packix#local*
+                                              *packix.Local()* *packix#Local()*
+packix.Local({path}: string, [opts]: dict<any> = {}): void
+packix#Local({path}: string, [opts]: dict<any> = {}): void
 
->
-    packix.Local(path: string, opts: dict<any> = {}): void
-    packix#local(path, opts = {})
-<
+A variant of |packix.Add| that creates a symbolic link from the provided
+{path} to the packix folder in |'packpath'|. The {path} must be a |String|
+full path to the local folder, such as `~/my_plugins/my_awesome_plugin`.
 
-A variant of |packix.Add| that creates a symbolic link from the provided `path`
-to the packix folder in |'packpath'|.
+The {opts} available for installation. See |packix.Add()| for full details.
+While all options can be specified, only the options `name`, `type`, `do`, and
+`frozen` have any impact on local plugins.
 
-                                        *packix.local-path* *packix#local-path*
-
-`path`                                 The |String| full path to the local
-                                       folder, such as
-                                       `~/my_plugins/my_awesome_plugin`.
-
-                                  *packix.local-options* *packix#local-options*
-
-`options`                              The options for installation. See
-                                       |packix.Add| for full details. While
-                                       all options can be specified, only the
-                                       options `name`, `type`, `do`, and
-                                       `frozen` have any impact on local
-                                       plugins.
-
-PACKIX.INSTALL                                *packix.install* *packix#install*
-
->
-    packix.Install(opts: dict<any> = {}): void
-    packix#install(opts = {})
-<
+                                          *packix.Install()* *packix#Install()*
+packix.Install([opts]: dict<any> = {}): void
+packix#Install([opts]: dict<any> = {}): void
 
 Installs plugins that are not currently installed.
 
-Available options are:
+Available {opts} are:
 
 - `on_finish` (|String|): The Vim command to run after installation finishes.
   Example: `packix.Install({ on_finish: 'quitall' })` will quit Vim after
@@ -447,17 +426,14 @@ After installation finishes, two mappings are added to the packix buffer:
   install or post-install hooks presented an error, this is shown in the
   preview window.
 
-PACKIX.UPDATE                                   *packix.update* *packix#update*
-
->
-    packix.Update(opts: dict<any> = {}): void
-    packix#update(opts = {})
-<
+                                            *packix.Update()* *packix#Update()*
+packix.Update([opts]: dict<any> = {}): void
+packix#Update([opts]: dict<any> = {}): void
 
 Installs plugins not currently installed and updates existing plugins to the
 latest version (unless the plugin is `frozen`).
 
-Available options are:
+Available {opts} are:
 
 - `on_finish` (|String|): The Vim command to run after update finishes.
   Example: `packix.Update({ on_finish: 'quitall' })` will quit Vim after
@@ -482,12 +458,9 @@ After update finishes, two mappings are added to the packix buffer:
   update or post-update hooks presented an error, this is shown in the preview
   window.
 
-PACKIX.STATUS                                   *packix.status* *packix#status*
-
->
-    packix.Status(): void
-    packix#status()
-<
+                                            *packix.Status()* *packix#Status()*
+packix.Status(): void
+packix#Status(): void
 
 Shows the status for each plugin added from the Vim configuration (`vimrc`).
 This view is reachable from the Install and Update screens by pressing `D`.
@@ -509,16 +482,52 @@ Each plugin can have several states:
 
 - `Updated`: Plugin has some information about its last update.
 
-PACKIX.CLEAN                                      *packix.clean* *packix#clean*
-
->
-    packix.Clean(): void
-    packix#clean()
-<
+                                              *packix.Clean()* *packix#Clean()*
+packix.Clean(): void
+packix#Clean(): void
 
 Removes unused plugins, prompting for confirmation before proceeding.
 Confirmation options include deleting all folders or prompting for each
 folder.
+
+                                          *packix.Plugins()* *packix#Plugins()*
+packix.Plugins(): list<packix.PluginInfo>
+packix#Plugins(): list<packix#PluginInfo>
+
+Returns a simplified, read-only version of plugin details, containing `name`,
+`type`, `url`, `dir`, `rev`, `headRef`, `installed`, `isLocal`, `mainBranch`,
+and `rtpDir`.
+
+                                  *packix.PluginNames()* *packix#PluginNames()*
+packix.PluginNames(): list<string>
+packix#PluginNames(): list<string>
+
+Returns a list of defined plugin names. These may or may not be installed.
+
+                                      *packix.GetPlugin()* *packix#GetPlugin()*
+packix.GetPlugin({name}: string): packix.PluginInfo
+packix#GetPlugin({name}: string): packix#PluginInfo
+
+Gets the plugin info for a plugin identified by {name}.
+
+                                      *packix.HasPlugin()* *packix#HasPlugin()*
+packix.HasPlugin({name}: string): bool
+packix#HasPlugin({name}: string): bool
+
+Returns `true` if a plugin identified by {name} is defined.
+
+                      *packix.IsPluginInstalled()* *packix#IsPluginInstalled()*
+packix.IsPluginInstalled({name}: string): bool
+packix#IsPluginInstalled({name}: string): bool
+
+Returns `true` if a plugin identified by {name} is both defined and currently
+installed.
+
+                                  *packix.Version()* *packix#Version()*
+packix.Version(): string
+packix#Version(): string
+
+Returns the current packix version.
 
 COMMANDS                                                      *packix-commands*
 ==============================================================================
@@ -527,28 +536,32 @@ Commands are only added when using |packix.Setup|. For `:PackixInstall` and
 `:PackixUpdate`, arguments are passed as written.
 
                                                                *:PackixInstall*
+:PackixInstall [opts]
 
-:PackixInstall                         Sets up Packix and runs |packix.Install|.
+Sets up Packix and runs |packix.Install()|.
 
 `:PackixInstall { 'on_finish': 'quitall' }` is the same as
-`:call packix#install({ 'on_finish': 'quitall' }).`
+`:call packix#Install({ 'on_finish': 'quitall' }).`
 
                                                                 *:PackixUpdate*
+:PackixUpdate [opts]
 
-:PackixUpdate                          Sets up Packix and runs |packix.Update|.
+Sets up Packix and runs |packix.Update()|.
 
 `:PackixUpdate { 'on_finish': 'quitall' }` is the same as
-`:call packix#update({ 'on_finish': 'quitall' }).`
+`:call packix#Update({ 'on_finish': 'quitall' }).`
 
                                                                  *:PackixClean*
+:PackixClean
 
-:PackixClean                           Sets up Packix and runs |packix.Clean|.
+Sets up Packix and runs |packix.Clean()|.
 
                                                                 *:PackixStatus*
+:PackixStatus
 
-:PackixStatus                          Sets up Packix and runs |packix.Status|.
+Sets up Packix and runs |packix.Status()|.
 
-PACKIX KEYBINDINGS                                         *packix-keybindings*
+KEYBINDINGS                                                *packix-keybindings*
 ==============================================================================
 
 When the `packix` buffer is created on `packix.Install`, `packix.Update`, or
