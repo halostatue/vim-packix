@@ -949,6 +949,10 @@ class Plugin
   enddef
 
   def _LocalCommand(): string
+    if this.dir->isdirectory()
+      return null_string
+    endif
+
     var cmd = SymlinkCommand(this.url->fnamemodify(':p'), this.dir)
 
     if !cmd->empty()
@@ -979,10 +983,13 @@ class Plugin
     endif
 
     var dir = printf('%s/%s', this.dir, this.rtp)
-    var cmd = SymlinkCommand(dir, this.rtpDir)
 
-    if !cmd->empty()
-      System(cmd)
+    if !this.rtpDir->isdirectory()
+      var cmd = SymlinkCommand(dir, this.rtpDir)
+
+      if !cmd->empty()
+        System(cmd)
+      endif
     endif
   enddef
 endclass
@@ -1061,6 +1068,7 @@ export class Manager implements IManager
   var _jobs: number = DEFAULT_JOBS
   var _lastRenderTime: list<number>
   var _plugins: dict<Plugin> = {}
+  var _pluginNames: dict<string> = {}
   var _postRunHooksCalled: bool = false
   var _postRunOpts: Opts = {}
   var _processedPlugins: list<Plugin> = []
@@ -1114,15 +1122,6 @@ export class Manager implements IManager
     return this._defaultPluginType
   enddef
 
-  def Dir(): string
-    return this._dir
-  enddef
-
-  def Add(url: string, opts: Opts = {})
-    var plugin = Plugin.new(url, opts, this)
-    this._plugins[plugin.name] = plugin
-  enddef
-
   def SupportsSubmoduleProgress(): bool
     if this._gitVersion->empty()
       return false
@@ -1130,6 +1129,14 @@ export class Manager implements IManager
 
     return this._gitVersion->get(0, 0) >= 2 &&
       this._gitVersion->get(1, 0) >= 11
+  enddef
+
+  def Dir(): string
+    return this._dir
+  enddef
+
+  def Add(url: string, opts: Opts = {})
+    this._SavePlugin(Plugin.new(url, opts, this))
   enddef
 
   def AddRequired(url: string, requiredPackage: any)
@@ -1149,17 +1156,12 @@ export class Manager implements IManager
       throw "Missing 'requires' package url for '" .. url .. "'."
     endif
 
-    var plugin = Plugin.new(requiredUrl, requiredOpts, this)
-
-    if !this._plugins->has_key(plugin.name)
-      this._plugins[plugin.name] = plugin
-    endif
+    this._SavePlugin(Plugin.new(requiredUrl, requiredOpts, this))
   enddef
 
   def Local(path: string, opts: Opts = {})
     opts.local = true
-    var plugin = Plugin.new(path, opts, this)
-    this._plugins[plugin.name] = plugin
+    this._SavePlugin(Plugin.new(path, opts, this))
   enddef
 
   def Install(opts: Opts)
@@ -1197,15 +1199,19 @@ export class Manager implements IManager
     for plugin in this._processedPlugins
       plugin.Queue()
 
-      this._StartJob(
-        plugin.Command(this._depth),
-        {
-          exit_handler: this._ExitHandler,
-          handler: this._StdoutHandler,
-          limit_jobs: true,
-          plugin: plugin,
-        }
-      )
+      var command = plugin.Command(this._depth)
+
+      if !command->empty()
+        this._StartJob(
+          command,
+          {
+            exit_handler: this._ExitHandler,
+            handler: this._StdoutHandler,
+            limit_jobs: true,
+            plugin: plugin,
+          }
+        )
+      endif
     endfor
   enddef
 
@@ -1499,19 +1505,45 @@ export class Manager implements IManager
   enddef
 
   def GetPlugin(name: string): PluginInfo
-    if !this._plugins->has_key(name)
+    var pluginName = this._pluginNames->get(name, name)
+
+    if !this._plugins->has_key(pluginName)
       throw 'No plugin named ' .. name
     endif
 
-    return this._plugins[name].GetInfo()
+    return this._plugins[pluginName].GetInfo()
   enddef
 
   def HasPlugin(name: string): bool
-    return this._plugins->has_key(name)
+    var pluginName = this._pluginNames->get(name, name)
+
+    return this._plugins->has_key(pluginName)
   enddef
 
   def IsPluginInstalled(name: string): bool
-    return this._plugins->has_key(name) && this._plugins[name].installed
+    var pluginName = this._pluginNames->get(name, name)
+
+    return this._plugins->has_key(pluginName) && this._plugins[pluginName].installed
+  enddef
+
+  def _SavePlugin(plugin: Plugin)
+    if this._plugins->has_key(plugin.name)
+      return
+    endif
+
+    var pluginUrl = plugin.url
+
+    this._plugins[plugin.name] = plugin
+
+    if !this._plugins->has_key(pluginUrl)
+      this._pluginNames[pluginUrl] = plugin.name
+    endif
+
+    pluginUrl = pluginUrl->substitute('^https://github.com/', '', '')
+
+    if !this._plugins->has_key(pluginUrl)
+    this._pluginNames[pluginUrl] = plugin.name
+    endif
   enddef
 
   def _FindPluginBySha(sha: string): string
