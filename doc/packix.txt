@@ -13,12 +13,13 @@ PACKIX - TABLE OF CONTENTS                                *packix* *packix-toc*
    Commands                    |packix-commands|
    packix Keybindings          |packix-keybindings|
    Why?                        |packix-why|
+   Changelog                   |packix-changelog|
 
 VIM-PACKIX                                                         *vim-packix*
 ==============================================================================
 
 packix is yet another plugin manager for Vim 9 or later, using Vim 9 script,
-based on {@kristijanhusak}{1}’s {vim-packager}{2}.
+based on {@kristijanhusak}{1}'s {vim-packager}{2}.
 
 BENEFITS                                                      *packix-benefits*
 ==============================================================================
@@ -477,7 +478,7 @@ Each plugin can have several states:
 - `Hook failed`: something went wrong with post install/update hook. Press `E`
   on the plugin line to view output of the process.
 
-- `OK`: Plugin is properly installed and it doesn’t have any update
+- `OK`: Plugin is properly installed and it doesn't have any update
   information.
 
 - `Updated`: Plugin has some information about its last update.
@@ -616,11 +617,11 @@ WHY?                                                              *packix-why?*
 
 As {Kristijan Husak}{1} {said}{3} wrote:
 
-          There’s a lot of plugin managers for Vim out there.
+          There's a lot of plugin managers for Vim out there.
 
 This was true when originally written in 2018 and it is still true now.
-There’s {vim-plug}{4}, {vim-packager}{2}, {minpac}{5}, and {vim-jetpack}{6}
-– all of which work with both Vim and Neovim. There are more that are
+There's {vim-plug}{4}, {vim-packager}{2}, {minpac}{5}, and {vim-jetpack}{6} --
+all of which work with both Vim and Neovim. There are more that are
 Neovim-only, the best of which is currently considered {lazy.nvim}{7}.
 
 I recently noticed that {@kristijanhusak}{1} archived {vim-packager}{2} in
@@ -628,14 +629,14 @@ March 20204, which was my preferred package manager for Vim (on Neovim, in the
 rare times I use it, I manage plugins with {lazy.nvim}{7}). I tried
 {vim-jetpack}{6}, but found that it did not work with some packages which
 _should_ be in `pack/*/start` instead of `pack/*/opt` (vim-jetpack installs
-everything into `pack/*/opt` and appears to run `packadd …` for non-optional
+everything into `pack/*/opt` and appears to run `packadd ...` for non-optional
 plugins).
 
 I have been looking for an excuse to play with {Vim 9 script}{8}, so I
 decided to fork vim-packager and rewrite it. The Neovim developers made
-decisions at the beginning which have — a decade on — ensured that there will
-never be a GUI interface which is as usable as gvim or {MacVim.app}{9}. Since
-MacVim.app is a core part of my workflow, I have no need for a nominally
+decisions at the beginning which have -- a decade on -- ensured that there
+will never be a GUI interface which is as usable as gvim or {MacVim.app}{9}.
+Since MacVim.app is a core part of my workflow, I have no need for a nominally
 cross-editor plugin manager.
 
 Ultimately, the answer to "Why?" is "I wanted to".
@@ -645,6 +646,17 @@ Ultimately, the answer to "Why?" is "I wanted to".
 
 - {@kristijanhusak}{1} and {vim-packager}{2} for the baseline code.
 - {@k-takata}{10} and his {minpac}{5} plugin for inspiration and parts
+
+CHANGELOG                                                    *packix-changelog*
+==============================================================================
+
+1.1.0 - 2024-08-07
+
+  Add support for deferred loading of 'opt' packages.
+
+1.0.0 - 2024-06-23
+
+  Initial release as a vim9 script port of {vim-packager}{2}.
 
      {1} https://github.com/kristijanhusak
      {2} https://github.com/kristijanhusak/vim-packager
