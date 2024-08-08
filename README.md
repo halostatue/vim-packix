@@ -65,339 +65,587 @@ endif
 
 ## Usage
 
-Using `setup` function.
+As packix is written with |vim9| script, it offers typed functions for use with
+`vim9script` configuration files, and `autoload`-scripts for use with old-style
+scripts.
+
+Package selection is offered through either `Setup` or `Init`, offering
+different levels of control.
+
+After either has been set up, reload your `vimrc` and run `:PackixInstall`,
+which will install the selected plugins and run any post-install hooks required.
+
+If a plugin's installation or hook fails, the plugin line in the output window
+will include the most recent output line. To view more, press `E` on the plugin
+line to view the whole output for the failed step.
+
+### Setup
+
+The `Setup` function adds `:PackixInstall`, `:PackixUpdate`, `:PackixClean`, and
+`:PackixStatus` commands that use a callback `Funcref` or lambda to configure
+and run the packix manager. The only parameter to the callback is the packix
+manager instance.
+
+Using `vim9script`:
 
 ```vim
-if &compatible
-  set nocompatible
-endif
-
-function! s:packager_init(packager) abort
-  call a:packager.add('halostatue/vim-packix', { 'type': 'opt' })
-  call a:packager.add('junegunn/fzf', { 'do': './install --all && ln -s $(pwd) ~/.fzf'})
-  call a:packager.add('junegunn/fzf.vim')
-  call a:packager.add('vimwiki/vimwiki', { 'type': 'opt' })
-  call a:packager.add('Shougo/deoplete.nvim')
-  call a:packager.add('autozimu/LanguageClient-neovim', { 'do': 'bash install.sh' })
-  call a:packager.add('morhetz/gruvbox')
-  call a:packager.add('lewis6991/gitsigns.nvim', {'requires': 'nvim-lua/plenary.nvim'})
-  call a:packager.add('haorenW1025/completion-nvim', {'requires': [
-  \ ['nvim-treesitter/completion-treesitter', {'requires': 'nvim-treesitter/nvim-treesitter'}],
-  \ {'name': 'steelsojka/completion-buffers', 'opts': {'type': 'opt'}},
-  \ 'kristijanhusak/completion-tags',
-  \ ]})
-  call a:packager.add('hrsh7th/vim-vsnip-integ', {'requires': ['hrsh7th/vim-vsnip'] })
-  call a:packager.local('~/my_vim_plugins/my_awesome_plugin')
-
-  "Provide full URL; useful if you want to clone from somewhere else than GitHub.
-  call a:packager.add('https://my.other.public.git/tpope/vim-fugitive.git')
-
-  "Provide SSH-based URL; useful if you have write access to a repository and wish to push to it
-  call a:packager.add('git@github.com:mygithubid/myrepo.git')
-
-  "Loaded only for specific filetypes on demand. Requires autocommands below.
-  call a:packager.add('kristijanhusak/vim-js-file-import', { 'do': 'npm install', 'type': 'opt' })
-  call a:packager.add('fatih/vim-go', { 'do': ':GoInstallBinaries', 'type': 'opt' })
-  call a:packager.add('neoclide/coc.nvim', { 'do': function('InstallCoc') })
-  call a:packager.add('sonph/onehalf', {'rtp': 'vim/'})
-endfunction
+vim9script
 
 packadd vim-packix
-call packix#setup(function('s:packager_init'))
+import autoload 'packix.vim'
+
+packix.Setup((px: packix.Manager) => {
+  px.Add('halostatue/vim-packix', { type: 'opt' })
+  px.Add('junegunn/fzf.vim', {
+    requires: {
+      url: 'junegunn/fzf',
+      opts: { do: './install --all && ln -s $(pwd) ~/.fzf' }
+    }
+  })
+  px.Add('vimwiki/vimwiki', { type: 'opt' })
+  px.Add('morhetz/gruvbox')
+  px.Add('hrsh7th/vim-vsnip-integ', { requires: ['hrsh7th/vim-vsnip'] })
+  px.Local('~/my_vim_plugins/my_awesome_plugin')
+
+  # Provide full URL; useful if you want to clone from somewhere else than
+  # GitHub.
+  px.Add('https://my.other.public.git/tpope/vim-fugitive.git')
+
+  # Provide SSH-based URL; useful if you have write access to a repository
+  # and wish to push to it
+  px.Add('git@github.com:mygithubid/myrepo.git')
+
+  # Loaded only for specific filetypes on demand.
+  # Requires autocommand definitions to run `packadd` as required, see
+  # below for examples.
+  px.Add('kristijanhusak/vim-js-file-import', {
+    do: 'npm install', type: 'opt'
+  })
+  px.Add('fatih/vim-go', { do: ':GoInstallBinaries', type: 'opt' })
+  px.Add('neoclide/coc.nvim', { do: function('InstallCoc') })
+  px.Add('sonph/onehalf', { rtp: 'vim/' })
+})
+
+augroup packix_filetype
+  autocmd!
+  autocmd FileType javascript packadd vim-js-file-import
+  autocmd FielType go packadd vim-go
+augroup END
 ```
 
-and run `PackagerInstall` or `PackagerUpdate`. See all available commands
-[here](#commands)
-
-Or doing the old way that allows more control.
+Using legacy Vim script:
 
 ```vim
+scriptencoding utf-8
+
 if &compatible
   set nocompatible
 endif
 
-" Load packager only when you need it
-function! PackagerInit() abort
-  packadd vim-packix
-  call packix#init()
-  call packix#add('halostatue/vim-packix', { 'type': 'opt' })
-  call packix#add('junegunn/fzf', { 'do': './install --all && ln -s $(pwd) ~/.fzf'})
-  call packix#add('junegunn/fzf.vim')
-  call packix#add('vimwiki/vimwiki', { 'type': 'opt' })
-  call packix#add('Shougo/deoplete.nvim')
-  call packix#add('autozimu/LanguageClient-neovim', { 'do': 'bash install.sh' })
-  call packix#add('morhetz/gruvbox')
-  call packix#add('lewis6991/gitsigns.nvim', {'requires': 'nvim-lua/plenary.nvim'})
-  call packix#add('haorenW1025/completion-nvim', {'requires': [
-  \ ['nvim-treesitter/completion-treesitter', {'requires': 'nvim-treesitter/nvim-treesitter'}],
-  \ {'name': 'steelsojka/completion-buffers', 'opts': {'type': 'opt'}},
-  \ 'kristijanhusak/completion-tags',
-  \ ]})
-  call packix#add('hrsh7th/vim-vsnip-integ', {'requires': ['hrsh7th/vim-vsnip'] })
-  call packix#local('~/my_vim_plugins/my_awesome_plugin')
+packadd vim-packix
 
-  " Provide full URL; useful if you want to clone from somewhere else than GitHub.
-  call packix#add('https://my.other.public.git/tpope/vim-fugitive.git')
+call packix#Setup({ packix ->
+  px.Add('halostatue/vim-packix', { 'type': 'opt' })
+  px.Add('junegunn/fzf.vim',
+        \ {
+        \   'requires': {
+        \     'url': 'junegunn/fzf',
+        \     'opts': { 'do': './install --all && ln -s $(pwd) ~/.fzf' }
+        \   }
+        \ })
+  px.Add('vimwiki/vimwiki', { 'type': 'opt' })
+  px.Add('morhetz/gruvbox')
+  px.Add('hrsh7th/vim-vsnip-integ', { 'requires': ['hrsh7th/vim-vsnip'] })
+  px.Add('~/my_vim_plugins/my_awesome_plugin')
 
-  " Provide SSH-based URL; useful if you have write access to a repository and wish to push to it
-  call packix#add('git@github.com:mygithubid/myrepo.git')
+  " Provide full URL; useful if you want to clone from somewhere else than
+  GitHub.
+  px.Add('https://my.other.public.git/tpope/vim-fugitive.git')
 
-  " Loaded only for specific filetypes on demand. Requires autocommands below.
-  call packix#add('kristijanhusak/vim-js-file-import', { 'do': 'npm install', 'type': 'opt' })
-  call packix#add('fatih/vim-go', { 'do': ':GoInstallBinaries', 'type': 'opt' })
-  call packix#add('neoclide/coc.nvim', { 'do': function('InstallCoc') })
-  call packix#add('sonph/onehalf', {'rtp': 'vim/'})
+  " Provide SSH-based URL; useful if you have write access to a repository
+  and " wish to push to it
+  px.Add('git@github.com:mygithubid/myrepo.git')
+
+  " Loaded only for specific filetypes on demand.
+  " Requires autocommand definitions to run `packadd` as required, see
+  below for " examples.
+  px.Add('kristijanhusak/vim-js-file-import',
+        \ { 'do': 'npm install', 'type': 'opt' })
+  px.Add('fatih/vim-go', { 'do': ':GoInstallBinaries', 'type': 'opt' })
+  px.Add('neoclide/coc.nvim', { 'do': function('InstallCoc') })
+  px.Add('sonph/onehalf', { 'rtp': 'vim/' })
+})
+
+" This could also be done with a function reference:
+
+function! s:packix_init(packix)
+  a:packix.Add('vimwiki/vimwiki', { 'type': 'opt' })
 endfunction
 
-function! InstallCoc(plugin) abort
-  exe '!cd '.a:plugin.dir.' && yarn install'
-  call coc#add_extension('coc-eslint', 'coc-tsserver', 'coc-pyls')
-endfunction
-
-" These commands are automatically added when using `packix#setup()`
-command! -nargs=* -bar PackagerInstall call PackagerInit() | call packix#install(<args>)
-command! -nargs=* -bar PackagerUpdate call PackagerInit() | call packix#update(<args>)
-command! -bar PackagerClean call PackagerInit() | call packix#clean()
-command! -bar PackagerStatus call PackagerInit() | call packix#status()
-
-"Load plugins only for specific filetype
-"Note that this should not be done for plugins that handle their loading using ftplugin file.
-"More info in :help pack-add
-augroup packager_filetype
-  autocmd!
-  autocmd FileType javascript packadd vim-js-file-import
-  autocmd FileType go packadd vim-go
-augroup END
-
-"Lazy load plugins with a mapping
-nnoremap <silent><Leader>ww :unmap <Leader>ww<BAR>packadd vimwiki<BAR>VimwikiIndex<CR>
+call packix#Setup(function('s:packix_init'))
 ```
 
-After that, reload your `vimrc`, and run `:PackagerInstall`. It will install all
-the plugins and run it's hooks.
+### `Init`
 
-If some plugin installation (or it's hook) fail, you will get (as much as
-possible) descriptive error on the plugin line. To view more, press `E` on the
-plugin line to view whole stdout.
+The `Init` function offers full control and does not define any commands; it is
+up to you to define the commands for easy operation.
 
-### Functions
+Using `vim9script`:
 
-#### `packix#setup(callback_function, opts)`
+```vim
+vim9script
 
-This is a small wrapper around functions explained below. It does this:
+def PackixInit()
+  packadd vim-packix
+  import autoload 'packix.vim'
 
-1. Adds all necessary commands. `PackagerInstall`, `PackagerUpdate`,
-   `PackagerClean` and `PackagerStatus`
-2. Running any of the command does this:
+  packix.Init()
+  packix.Add('halostatue/vim-packix', { type: 'opt' })
+  packix.Add('vimwiki/vimwiki', { type: 'opt' })
+enddef
 
-   - calls `packix#init(opts)`
-   - calls provided `callback_function` with `packager` instance
-   - calls proper function for the command
+command! -nargs=* -bar PackixInstall <Cmd>PackixInit() | call packix#Install(<args>)
+command! -nargs=* -bar PackixUpdate <Cmd>PackixInit() | call packix#Update(<args>)
+command! -bar PackixClean <Cmd>PackixInit() | call packix#Clean()
+command! -bar PackixStatus <Cmd>PackixInit() | call packix#Status()
+```
 
-#### `packix#init(options)`
+## Functions
 
-Available options:
+All of the functions documented here are available via import-autoload or
+through autoload prefixes (`packix#`). Using legacy Vim script, read
+|legacy-import| for how to use imports. In the examples below, the Vim 9 script
+(assuming `import autoload 'packix.vim'`) and autoload functions versions are
+shown.
 
-- `depth` - `--depth` value to use when cloning. Default: `5`
-- `jobs` - Maximum number of jobs that can run at same time. `0` is treated as
-  unlimited. Default: `8`
-- `dir` - Directory to use for installation. By default uses `&packpath` value,
-  which is `~/.vim/pack/packager` in Vim, and `~/.config/nvim/pack/packager` in
-  Neovim.
-- `window_cmd` - What command to use to open packager window. Default:
-  `vertical topleft new`
-- `default_plugin_type` - Default `type` option for plugins where it's not
-  provided. More info below in `packix#add` options. Default: `start`
-- `disable_default_mappings` - Disable all default mappings for packager buffer.
-  Default: `0`
+### `packix.Setup()` `packix#Setup()`
 
-#### `packix#add(name, options)`
+```
+packix#Setup({Callback}: string | Funcref, [opts]: dict<any> = {}): void
+packix.Setup({Callback}: string | Funcref, [opts]: dict<any> = {}): void
+```
 
-`name` - URL to the git directory, or only last part of it to use `github`.
+This is a small wrapper around `packix.Init()` and related functions, described
+below. It does the following:
 
-Example: for GitHub repositories, `halostatue/vim-packix` is enough, for
-something else, like `bitbucket`, use full path
-`https://bitbucket.org/owner/package`
+- adds commands `:PackixInstall`, `:PackixUpdate`, `:PackixClean`, and
+  `:PackixStatus`;
+- calls `packix.Init(opts)` when one of the commands above is run;
+- calls the provided `Callback` with the `packix.Manager` instance; and
+- calls the appropriate function for the command (`packix.Install()`,
+  `packix.Update()`, `packix.Clean()`, or `packix.Status()`).
 
-Options:
+If the `{Callback}` parameter is a String, `packix.Setup` will attempt to create
+a `Funcref` from it. See `packix.Init()` for the possible keys and values of the
+`opts` parameter.
 
-- `name` - Custom name of the plugin. If omitted, last part of the URL explained
-  above is taken (example: `vim-packix`, in `halostatue/vim-packix`)
-- `type` - In which folder to install the plugin. Plugins that are loaded on
-  demand (with `packadd`), goes to `opt` directory, where plugins that are auto
-  loaded goes to `start` folder. Default: `start`
-- `branch` - git branch to use. Default: '' (Uses the default from the
-  repository, usually master)
-- `tag` - git tag to use. Default: ''
-- `rtp` - Used in case when subdirectory contains vim plugin. Creates a
-  symbolink link from subdirectory to the packager folder. If `type` of package
-  is `opt` use `packadd {packagename}__{rtp}` to load it (example:
-  `packadd onehalf__vim`)
-- `commit` - exact git commit to use. Default: '' (Check below for priority
-  explanation)
-- `do` - Hook to run after plugin is installed/updated: Default: ''. Examples
-  below.
-- `frozen` - When plugin is frozen, it is not being updated. Default: 0
-- `requires` - Dependencies for the plugin. Can be
-  - _string_ (ex. `'halostatue/vim-packix'`)
-  - _list_ (ex. `['halostatue/vim-packix', {'type': 'opt'}]`)
-  - _dict_ (ex. `{'name': 'halostatue/vim-packix', 'opts': {'type': 'opt'} }`).
-    See example `vimrc` above.
+### `packix.Init()` `packix#Init()`
 
-`branch`, `tag` and `commit` options go in certain priority:
+```
+packix.Init([opts]: dict<any> = {}): void
+packix#Init([opts]: dict<any> = {}): void
+```
 
-- `commit`
-- `tag`
-- `branch`
+Initializes the `packix.Manager` instance. The main configuration `opts` are:
 
-Hooks can be defined in 3 ways:
+- `depth` (`Number`, default `5`): The `--depth` value to use when cloning.
 
-1. As a string that **doesn't** start with `:`. This runs the command as it is a
-   shell command, in the plugin directory. Example:
+- `jobs` (`Number`, default `8`): The maximum number of jobs that can run at the
+  same time, where `0` is treated as unlimited.
 
-   ```vimL
-   call packix#add('junegunn/fzf', { 'do': './install --all'})
-   call packix#add('kristijanhusak/vim-js-file-import', { 'do': 'npm install' })
+- `window_cmd` (`String`, default `vertical topleft new`): The command to use to
+  open the packix window.
+
+Secondary `opts` supported but discouraged from use are:
+
+- `dir` (`String`, default special): The directory to use for package
+  installation. By default the `dir` is derived from the first directory from
+  `'packpath'`, which is `~/vimfiles/pack/packix` on Windows or
+  `~/.vim/pack/packix` everywhere else.
+
+  The `packix` directory _must_ be found in `'packpath'`, so if you wish to use
+  a directory _other_ than `~/.vim/pack/packix`, it is better to modify
+  `'packpath'` so that your target directory is first:
+
+  ```vim
+  if &packpath !~# expand("$HOME/.local/share/vim/site,")
+    &packpath = expand("$HOME/.local/share/vim/site,") .. &packpath
+  end
+  ```
+
+- `default_plugin_type` (`String`, default `start`, allowed `opt` or `start`):
+  The `type` option for plugins when not provided. More details can be found in
+  `packix.Add()`.
+
+- `disable_default_mappings` (`Boolean`, default `false`): If `true`, all
+  default mappings for the packix buffer are disabled.
+
+### `packix.Add()` `packix#Add()`
+
+```
+packix.Add({url}: string, [opts]: dict<any> = {}): void
+packix#Add({url}: string, [opts]: dict<any> = {}): void
+```
+
+Adds the plugin found at `url` with `opts` The `url` may be a shorthand value,
+`owner/repo`, which is expanded to `https://github.com/owner/repo`. Full URLs
+may be provided to clone from hosts other than GitHub
+(`https://bitbucket.org/owner/repo.git`) and SSH-based URLs may be provided
+(`git@github.com:owner/repo.git`), which would allow read/write access.
+
+Installation `opts` may also be provided:
+
+- `name` (`String`, default special): An optional custom name for the plugin. If
+  omitted, the name is derived from the last part of the URL parameter
+  (`halostatue/vim-packix` becomes `vim-packix`;
+  `https://bitbucket.org/owner/repo.git` becomes `repo`).
+
+- `type` (`String`, default special, allowed `opt` or `start`): The folder `opt`
+  or `start` where the plugin will be installed. On-demand plugins, loaded with
+  `packadd plugin-name` are installed into the `opt` directory, whereas
+  autoloaded plugins are in `start`. The default comes from the owning
+  `packix.Manager` instance (which itself defaults to `start`).
+
+- `commit` (`String`): The optional git commit to checkout on install or update.
+  Higher priority than `tag` or `branch`.
+
+- `tag` (`String`): The optional git tag to checkout on install or update.
+  Higher priority than `branch`.
+
+- `branch` (`String`): The optional git branch to checkout on install or update.
+  Lowest priority, defaulting to the repository default branch.
+
+- `rtp` (`String`): A custom `'runtimepath'` used with some repositories
+  (usually colour schemes) where the associated Vim plugin is in a subdirectory.
+  Packix creates a symbolic link from the specified subdirectory to the packix
+  plugin folder.
+
+  If the `type` of the package is `opt`, then the command to load the plugin is
+  `packadd {plugin}__{rtp}` instead of just `packadd {plugin}`:
+
+  ```vim
+  packix.Add('sonph/onehalf', { rtp: 'vim/', type: 'opt' })
+  packadd onehalf__vim
+  ```
+
+- `do` (`String` or `Funcref`): The Hook to run after the plugin is installed or
+  updated. See examples below.
+
+- `frozen` (`Boolean`, default `false`): If `true`, the plugin is frozen and
+  will not be updated after install.
+
+- `requires` (special): Plugins may have other plugins that they depend on. The
+  value of `requires` _should_ be a list, but if there is only one dependency it
+  may be specified without using a list. The values within the `requires` list
+  may be either `String` (the plugin URL, like `'vimwiki/vimwiki'`) or a `Dict`
+  with `url` and `opts` keys
+  (`{ url: 'vimwiki/vimwiki', opts: { type: 'opt' }`). Required plugins do not
+  inherit any options from the parent.
+
+- `on` (special): On-demand plugins (`{ type: 'opt' }`) can be loaded with the
+  command (`String`) or commands (`List` of `String`) specified in this option.
+  The `on` option is ignored if the plugin `type` is 'start'.
+
+  ```vim
+  packix.Add('tpope/vim-rake', { type: 'opt', on: 'Rake' })
+  packix.Add('tpope/vim-rails',
+          { type: 'opt', on: ['Rails', 'Generate', 'Runner'] })
+  ```
+
+#### Post-install Hooks
+
+Post-install `do` hooks can be defined in three ways:
+
+1. As a `Funcref` that takes the plugin info as an argument.
+
+   ```vim
+   packix.Add('junegunn/fzf',
+       { do: (plugin) => exe plugin.dir .. '/install.sh --all' })
+   packix.Add('junegunn/fzf', { do: function('InstallFzf') })
+
+   def InstallFzf(plugin: packix.Plugin)
+     exe plugin.dir .. '/install.sh --all'
+   enddef
    ```
 
-2. As a string that starts with `:`. This executes the hook as a vim command.
-   Example:
+2. As a `String` that starts with `:`, indicating a Vim command to run.
 
-   ```vimL
-   call packix#add('fatih/vim-go', { 'do': ':GoInstallBinaries' })
-   call packix#add('iamcco/markdown-preview.nvim' , { 'do': ':call mkdp#util#install()' })
+   ```vim
+   packix.Add('fatih/vim-go', { do: ':GoInstallBinaries' })
    ```
 
-3. As a `funcref` that gets the plugin info as an argument. Example:
+3. As a `String` that does not start with `:`, indicating a command to run as a
+   shell command in the plugin directory.
 
-   ```vimL
-   call packix#add('iamcco/markdown-preview.nvim' , { 'do': { -> mkdp#util#install() } })
-   call packix#add('junegunn/fzf', { 'do': function('InstallFzf') })
-
-   function! InstallFzf(plugin) abort
-     exe a:plugin.dir.'/install.sh --all'
-   endfunction
+   ```vim
+   packix.Add('junegunn/fzf', { do: './install --all'})
+   packix.Add('kristijanhusak/vim-js-file-import', { do: 'npm install' })
    ```
 
-#### `packix#local(name, options)`
+### `packix.Local()` `packix#Local()`
 
-**Note**: This function only creates a symbolic link from provided path to the
-packager folder.
+```
+packix.Local({path}: string, [opts]: dict<any> = {}): void
+packix#Local({path}: string, [opts]: dict<any> = {}): void
+```
 
-`name` - Full path to the local folder Example: `~/my_plugins/my_awesome_plugin`
+A variant of `packix.Add()` that creates a symbolic link from the provided
+{path} to the packix folder in `'packpath'`. The `path` must be a `String` full
+path to the local folder, such as `~/my_plugins/my_awesome_plugin`.
 
-Options:
+The `opts` available for installation. See `packix.Add()` for full details.
+While all options can be specified, only the options `name`, `type`, `do`, and
+`frozen` have any impact on local plugins.
 
-- `name` - Custom name of the plugin. If omitted, last part of path is taken
-  (example: `my_awesome_plugin`, in `~/my_plugins/my_awesome_plugin`)
-- `type` - In which folder to install the plugin. Plugins that are loaded on
-  demand (with `packadd`), goes to `opt` directory, where plugins that are auto
-  loaded goes to `start` folder. Default: `start`
-- `do` - Hook to run after plugin is installed/updated: Default: ''
-- `frozen` - When plugin is frozen, it is not being updated. Default: 0
+### `packix.Install()` `packix#Install()`
 
-#### `packix#install(opts)`
+```
+packix.Install([opts]: dict<any> = {}): void
+packix#Install([opts]: dict<any> = {}): void
+```
 
-This only installs plugins that are not installed.
+Installs plugins that are not currently installed.
 
-Available options:
+Available `opts` are:
 
-- `on_finish` - Run command after installation finishes. For example to quit at
-  the end: `call packix#install({ 'on_finish': 'quitall' })`
-- `plugins` - Array of plugin names to install. Example:
-  `call packix#install({'plugins': ['gruvbox', 'gitsigns.nvim']})`
+- `on_finish` (`String`): The Vim command to run after installation finishes.
+  Example: `packix.Install({ on_finish: 'quitall' })` will quit Vim after
+  installation completes.
 
-When installation finishes, there are two mappings that can be used:
+- `plugins` (`List` of `String`): The list of plugins to install if they are not
+  already installed. Any plugins not in this list will be ignored. Example:
+  `packix.Install({ plugins: ['gruvbox', 'vim-signify'] })` will only install
+  `gruvbox` and `vim-signify` if they are not already installed.
 
-- `D` - Switches view from installation to status. This prints all plugins, and
-  it's status (Installed, Updated, list of commits that were pulled with latest
-  update)
-- `E` - View stdout of the plugin on the current line. If one of the
-  installations presented an error (from installation or post hook), it's
-  printed in the preview window.
+After installation finishes, two mappings are added to the packix buffer:
 
-#### `packix#update(opts)`
+- `D`: Switches view from installation to status. This prints all plugins and
+  the status of each (Installed, Updated, list of commits that were pulled with
+  latest update).
 
-This installs plugins that are not installed, and updates existing one to the
-latest (if it's not marked as frozen).
+- `E`: Views the output of the plugin on the current line. If one of the install
+  or post-install hooks presented an error, this is shown in the preview window.
 
-Available options:
+### `packix.Update()` `packix#Update()`
 
-- `on_finish` - Run command after update finishes. For example to quit at the
-  end: `call packix#update({ 'on_finish': 'quitall' })`
-- `force_hooks` - Force running post hooks for each package even if up to date.
-  Useful when some hooks previously failed. Must be non-empty value:
-  `call packix#update({ 'force_hooks': 1 })`
-- `plugins` - Array of plugin names to update. Example:
-  `call packix#update({'plugins': ['gruvbox', 'gitsigns.nvim']})`
+```
+packix.Update([opts]: dict<any> = {}): void
+packix#Update([opts]: dict<any> = {}): void
+```
 
-When update finishes, there are two mappings that can be used:
+Installs plugins not currently installed and updates existing plugins to the
+latest version (unless the plugin is `frozen`).
 
-- `D` - Switches view from installation to status. This prints all plugins, and
-  it's status (Installed, Updated, list of commits that were pulled with latest
-  update)
-- `E` - View stdout of the plugin on the current line. If one of the updates
-  presented an error (from installation or post hook), it's printed in the
-  preview window.
+Available `opts` are:
 
-#### `packix#status()`
+- `on_finish` (`String`): The Vim command to run after update finishes. Example:
+  `packix.Update({ on_finish: 'quitall' })` will quit Vim after updates
+  complete.
 
-This shows the status for each plugin added from `vimrc`.
+- `force_hooks` (`Boolean`, default: `false`): Forces `do` hooks to run for each
+  package even if it is up to date. This is useful when some hooks previously
+  failed. `packix.Update({ force_hooks: true })`
 
-You can come to this view from Install/Update screens by pressing `D`.
+- `plugins` (`List` of `String`): The list of plugins to update. Any plugins not
+  in this list will be ignored. Example:
+  `packix.Install({ plugins: ['gruvbox', 'vim-signify'] })` will only update or
+  install `gruvbox` and `vim-signify`.
+
+After update finishes, two mappings are added to the packix buffer:
+
+- `D`: Switches view from update to status. This prints all plugins and the
+  status of each (Installed, Updated, list of commits that were pulled with
+  latest update).
+
+- `E`: Views the output of the plugin on the current line. If one of the update
+  or post-update hooks presented an error, this is shown in the preview window.
+
+### `packix.Status()` `packix#Status()`
+
+```
+packix.Status(): void
+packix#Status(): void
+```
+
+Shows the status for each plugin added from the Vim configuration (`vimrc`).
+This view is reachable from the Install and Update screens by pressing `D`.
 
 Each plugin can have several states:
 
-- `Not installed` - Plugin directory does not exist. If something failed during
-  the clone process, shows the error message that can be previewed with `E`
-- `Install/update failed` - Something went wrong during installation/updating of
-  the plugin. Press `E` on the plugin line to view stdout of the process.
-- `Post hook failed` - Something went wrong with post hook. Press `E` on the
-  plugin line to view stdout of the process.
-- `OK` - Plugin is properly installed and it doesn't have any update
-  information.
-- `Updated` - Plugin has some information about the last update.
+- `Not installed`: the plugin directory does not exist. If something failed
+  during the clone process, an error message is shown and the full output can be
+  previewed with `E`.
 
-#### `packix#clean()`
+- `Install/update failed`: something went wrong during install or update of the
+  plugin. Press `E` on the plugin line to view output of the process.
 
-This removes unused plugins. It will ask for confirmation before proceeding.
-Confirmation allows selecting option to delete all folders from the list
-(default action), or ask for each folder if you want to delete it.
+- `Hook failed`: something went wrong with post install/update hook. Press `E`
+  on the plugin line to view output of the process.
 
-### `Commands`
+- `OK`: Plugin is properly installed and it doesn't have any update information.
 
-Commands are added only when using `packix#setup`. `require('packager').setup()`
+- `Updated`: Plugin has some information about its last update.
 
-- PackagerInstall - same as
-  [packix#install(`<args>`)](https://github.com/halostatue/vim9-packix#packagerinstallopts).
-- PackagerUpdate - same as
-  [packix#update(`<args>`)](https://github.com/halostatue/vim9-packix#packagerupdateopts).
-  Note that args are passed as they are written. For example, to force running
-  hooks you would do `:PackagerUpdate {'force_hooks': 1}`
-- PackagerClean - same as
-  [packix#clean()](https://github.com/halostatue/vim9-packix#packagerclean)
-- PackagerStatus - same as
-  [packix#status()](https://github.com/halostatue/vim9-packix#packagerstatus)
+### `packix.Clean()` `packix#Clean()`
 
-## Configuration
+```
+packix.Clean(): void
+packix#Clean(): void
+```
 
-Several buffer mappings are added for packager buffer by default:
+Removes unused plugins, prompting for confirmation before proceeding.
+Confirmation options include deleting all folders or prompting for each folder.
 
-- `q` - Close packager buffer (`<Plug>(PackagerQuit)`)
-- `<CR>` - Preview commit under cursor (`<Plug>(PackagerOpenSha)`)
-- `E` - Preview stdout of the installation process of plugin under cursor
-  (`<Plug>(PackagerOpenStdout)`)
-- `<C-j>` - Jump to next plugin (`<Plug>(PackagerGotoNextPlugin)`)
-- `<C-k>` - Jump to previous plugin (`<Plug>(PackagerGotoPrevPlugin)`)
-- `D` - Go to status page (`<Plug>(PackagerStatus)`)
-- `O` - Open details of plugin under cursor (`<Plug>(PackagerPluginDetails)`)
+### `packix.Plugins()` `packix#Plugins()`
 
-To use a different mapping for any of these, create a `filetype` autocommand
-with the mapping. For example, to use `<c-h>` instead of `<c-j>` for jumping to
-next plugin, add this to `vimrc`:
+```
+packix.Plugins(): list<packix.PluginInfo>
+packix#Plugins(): list<packix#PluginInfo>
+```
 
-```VimL
-autocmd FileType packager nmap <buffer> <C-h> <Plug>(PackagerGotoNextPlugin)
+Returns a simplified, read-only version of plugin details, containing `name`,
+`type`, `url`, `dir`, `rev`, `headRef`, `installed`, `isLocal`, `mainBranch`,
+and `rtpDir`.
+
+### `packix.PluginNames()` `packix#PluginNames()`
+
+```
+packix.PluginNames(): list<string>
+packix#PluginNames(): list<string>
+```
+
+Returns a list of defined plugin names. These may or may not be installed.
+
+### `packix.GetPlugin()` `packix#GetPlugin()`
+
+```
+packix.GetPlugin({name}: string): packix.PluginInfo
+packix#GetPlugin({name}: string): packix#PluginInfo
+```
+
+Gets the plugin info for a plugin identified by {name}, which may be either the
+plugin URL, a GitHub shorthand URL, or the resolved plugin name.
+
+```vim
+packix.GetPlugin('fatih/vim-go')
+packix.GetPlugin('https://github.com/fatih/vim-go')
+packix.GetPlugin('vim-go')<
+```
+
+### `packix.HasPlugin()` `packix#HasPlugin()`
+
+```
+packix.HasPlugin({name}: string): bool
+packix#HasPlugin({name}: string): bool
+```
+
+Returns `true` if a plugin identified by `name` is defined, which may be either
+the plugin URL, a GitHub shorthand URL, or the resolved plugin name.
+
+```vim
+packix.HasPlugin('fatih/vim-go')
+packix.HasPlugin('https://github.com/fatih/vim-go')
+packix.HasPlugin('vim-go')
+```
+
+### `packix.IsPluginInstalled()` `packix#IsPluginInstalled()`
+
+```
+packix.IsPluginInstalled({name}: string): bool
+packix#IsPluginInstalled({name}: string): bool
+```
+
+Returns `true` if a plugin identified by `name` is both defined and currently
+installed, which may be either the plugin URL, a GitHub shorthand URL, or the
+resolved plugin name.
+
+```vim
+packix.IsPluginInstalled('fatih/vim-go')
+packix.IsPluginInstalled('https://github.com/fatih/vim-go')
+packix.IsPluginInstalled('vim-go')
+```
+
+### `packix.Version()` `packix#Version()`
+
+```
+packix.Version(): string
+packix#Version(): string
+```
+
+Returns the current packix version.
+
+## Commands
+
+Commands are only added when using `packix.Setup`. For `:PackixInstall` and
+`:PackixUpdate`, arguments are passed as written.
+
+### `:PackixInstall`
+
+```vim
+:PackixInstall [opts]
+```
+
+Sets up Packix and runs `packix.Install()`.
+
+`:PackixInstall { 'on_finish': 'quitall' }` is the same as
+`:call packix#Install({ 'on_finish': 'quitall' }).`
+
+### `:PackixUpdate`
+
+```vim
+:PackixUpdate [opts]
+```
+
+Sets up Packix and runs `packix.Update()`.
+
+`:PackixUpdate { 'on_finish': 'quitall' }` is the same as
+`:call packix#Update({ 'on_finish': 'quitall' }).`
+
+### `:PackixClean`
+
+```vim
+:PackixClean
+```
+
+Sets up Packix and runs `packix.Clean()`.
+
+### `:PackixStatus`
+
+```vim
+:PackixStatus
+```
+
+Sets up Packix and runs `packix.Status()`.
+
+## Keybindings
+
+When the `packix` buffer is created on `packix.Install()`, `packix.Update()`, or
+`packix.Status()`, several mappings are added if they do not already exist.
+
+- `q` => `<Plug>(PackixQuit)`: Close the packix buffer
+
+- `<CR>` => `<Plug>(PackixOpenSha)`: Open a preview window with the commit
+  referenced under the cursor.
+
+- `E` => `<Plug>(PackixOpenOutput)`: Open a preview window with the output of
+  install/update or post-install/update hook.
+
+- `<C-j>` => `<Plug>(PackixGotoNextPlugin)`: Jumps to the next plugin
+
+- `<C-k>` => `<Plug>(PackixGotoPrevPlugin)`: Jumps to the previous plugin
+
+- `D` => `<Plug>(PackixStatus)`: Opens the status page
+
+- `O` => `<Plug>(PackixPluginDetails)`: Open a preview window for the details of
+  the plugin under the cursor.
+
+These mappings can be overridden by adding a `FileType` autocommand with the
+mapping. For example, to use `<C-h>` and `<C-l>` for navigating plugins, this
+would be added to your `vimrc`:
+
+```vim
+autocmd FileType packix nmap <buffer> <C-h> <Plug>(PackagerGotoNextPlugin)
+autocmd FileType packix nmap <buffer> <C-l> <Plug>(PackagerGotoPrevPlugin)
 ```
 
 ## Why?
@@ -429,35 +677,12 @@ cross-editor plugin manager.
 
 Ultimately, the answer to "Why?" is "I wanted to".
 
-## Thanks to:
+### Thanks to:
 
 - [@kristijanhusak][@kristijanhusak] and [vim-packager][vim-packager] for the
   baseline code.
 - [@k-takata][@k-takata] and his [minpac][minpac] plugin for inspiration and
   parts
-
-## Alternate Installation
-
-This installation method is experimental and may be removed in the future. Note
-that the destination directory _differs_ from the primary installation
-directory.
-
-```console
-# Linux, macOS, WSL, *BSD, etc.
-curl -fSSLo ~/.vim/pack/vim-packix/opt/vim-packix/import/packix.vim \
-    https://raw.githubusercontent.com/halostatue/vim-packix/main/import/packix.vim
-
-# Windows
-curl -fSSLo ~/vimfiles/pack/vim-packix/opt/vim-packix/import/packix.vim \
-    https://raw.githubusercontent.com/halostatue/vim-packix/main/import/packix.vim
-```
-
-When installing with this method, the following features are unavailable:
-
-- `halostatue/vim-packix` may not be added to the package list;
-- the |autoload-functions| `packix#*` are not available;
-- this help documentation is not available; and
-- updates must be installed manually using the install method.
 
 [@k-takata]: https://github.com/k-takata
 [@kristijanhusak]: https://github.com/kristijanhusak

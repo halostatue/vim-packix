@@ -210,7 +210,7 @@ is up to you to define the commands for easy operation.
 
 Using `vim9script`:
 
->vim
+>
     vim9script
 
     def PackixInit()
@@ -222,16 +222,16 @@ Using `vim9script`:
       packix.Add('vimwiki/vimwiki', { type: 'opt' })
     enddef
 
-    command! -nargs=* -bar PackixInstall call <ScriptCmd>PackixInit() | call packix#Install(<args>)
-    command! -nargs=* -bar PackixUpdate call <ScriptCmd>PackixInit() | call packix#Update(<args>)
-    command! -bar PackixClean call <ScriptCmd>PackixInit() | call packix#Clean()
-    command! -bar PackixStatus call <ScriptCmd>PackixInit() | call packix#Status()
+    command! -nargs=* -bar PackixInstall <Cmd>PackixInit() | call packix#Install(<args>)
+    command! -nargs=* -bar PackixUpdate <Cmd>PackixInit() | call packix#Update(<args>)
+    command! -bar PackixClean <Cmd>PackixInit() | call packix#Clean()
+    command! -bar PackixStatus <Cmd>PackixInit() | call packix#Status()
 <
 
 FUNCTIONS                                                    *packix-functions*
 ==============================================================================
 
-All of the plugins documented here are available via |import-autoload| or
+All of the functions documented here are available via |import-autoload| or
 through |autoload| prefixes (`packix#`). Using legacy Vim script, read
 |legacy-import| for how to use imports. In the examples below, the Vim 9
 script (assuming `import autoload 'packix.vim'`) and autoload functions
@@ -241,19 +241,19 @@ versions are shown.
 packix#Setup({Callback}: string | Funcref, [opts]: dict<any> = {}): void
 packix.Setup({Callback}: string | Funcref, [opts]: dict<any> = {}): void
 
-This is a small wrapper around |packix.Init| and related functions, described
-below. It does the following:
+This is a small wrapper around |packix.Init()| and related functions,
+described below. It does the following:
 
 - adds commands |:PackixInstall|, |:PackixUpdate|, |:PackixClean|, and
   |:PackixStatus|;
 - calls `packix.Init(opts)` when one of the commands above is run;
 - calls the provided `Callback` with the `packix.Manager` instance; and
-- calls the appropriate function for the command (|packix.Install|,
-  |packix.Update|, |packix.Clean|, or |packix.Status|).
+- calls the appropriate function for the command (|packix.Install()|,
+  |packix.Update()|, |packix.Clean()|, or |packix.Status()|).
 
 If the {Callback} parameter is a |String|, `packix.Setup` will attempt to
-create a |Funcref| from it. See |packix.Init| for the possible keys and values
-of the {opts} parameter.
+create a |Funcref| from it. See |packix.Init()| for the possible keys and
+values of the {opts} parameter.
 
                                                 *packix.Init()* *packix#Init()*
 packix.Init([opts]: dict<any> = {}): void
@@ -344,12 +344,12 @@ Installation {opts} may also be provided:
   will not be updated after install.
 
 - `requires` (special): Plugins may have other plugins that they depend on.
-  The value of `requires` _should_ be a list, but if there is only one
+  The value of `requires` should be a list, but if there is only one
   dependency it may be specified without using a list. The values within the
-  `requires` list may be either |String| (the plugin URL) or a |Dict| with
-  `url` and `opts` keys. See examples below. value (`'vimwiki/vimwiki'`) or
-  a |Dict| value (`{ url: 'vimwiki/vimwiki', opts: { type: 'opt' }`). Required
-  plugins do not inherit any options from the parent.
+  `requires` list may be either |String| (the plugin URL, like
+  `'vimwiki/vimwiki'`) or a |Dict| with `url` and `opts` keys
+  (`{ url: 'vimwiki/vimwiki', opts: { type: 'opt' }`). Required plugins do not
+  inherit any options from the parent.
 
 - `on` (special): On-demand plugins (`{ type: 'opt' }`) can be loaded with the
   command (|String|) or commands (|List| of |String|) specified in this
@@ -372,7 +372,7 @@ Post-install `do` hooks can be defined in three ways:
       packix.Add('junegunn/fzf', { do: function('InstallFzf') })
 
       def InstallFzf(plugin: packix.Plugin)
-        exe a:plugin.dir .. '/install.sh --all'
+        exe plugin.dir .. '/install.sh --all'
       enddef
    <
 
