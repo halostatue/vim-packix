@@ -39,1048 +39,37 @@ g:loaded_vim_packix = true
 
 type Opts = dict<any>
 
-const MSG_NAVIGATE_PLUGINS = "Use <C-j> and <C-k> to navigate between plugins."
-const MSG_PLUGIN_UPDATES = "Press 'D' on an updated plugin to preview the latest updates."
-const MSG_PLUGIN_DETAILS = "Press 'O' on a plugin to preview plugin details."
-const MSG_PREVIEW_COMMIT = "Press 'Enter' on commit lines to preview the commit."
-const MSG_QUIT_BUFFER = "Press 'q' to quit this buffer."
-const MSG_VIEW_ERRORS = "Press 'E' on plugins with errors to view output."
-
-def Wrap(v: any): list<any>
-  return v == null ? [] : v->type() == v:t_list ? v : [v]
-enddef
-
-class Progress
-  static const ICONS = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-  static var _counter: number = 0
-
-  static def Next(): string
-    var icon = ICONS[_counter]
-
-    _counter += 1
-
-    if _counter >= len(ICONS)
-      _counter = 0
-    endif
-
-    return icon
-  enddef
-endclass
-
-const HAS_SETBUFLINE = has('*setbufline')
-const HAS_TIMERS = has('timers')
-const IS_WINDOWS = has('win32')
-
-const ICONS = { ok: '✓', error: '✗', waiting: '+', progress: join(Progress.ICONS, '') }
-const ICONS_STR = ICONS->values()->join('')
-const SLASH = exists('+shellslash') && !&shellslash ? '\' : '/'
-
-const DEFAULT_DIR = printf(
-  '%s%s%s',
-  substitute(split(&packpath, ',')[0], '\(\\\|\/\)', SLASH, 'g'),
-  SLASH, 'pack' .. SLASH .. 'packix'
-)
-const DEFAULT_DEPTH = 5
-const DEFAULT_JOBS = 8
-const DEFAULT_WINDOW_CMD = 'vertical topleft new'
-const DEFAULT_PLUGIN_TYPE = 'start'
-const DISABLE_DEFAULT_MAPPINGS = false
-
-const PACKIX_BUFFER = '__packix__'
-const PACKIX_FILETYPE = 'packix'
-
-# --- Utility Functions
-
-def WithShell(Fn: func(): any): any
-  var saved = [&shell, &shellcmdflag, &shellredir]
-
-  if IS_WINDOWS
-    set shell=cmd.exe shellcmdflag=/c shellredir=>%s\ 2>&1
-  else
-    set shell=sh shellredir=>%s\ 2>&1
-  endif
-
-  var result: any
-
-  try
-    result = Fn()
-  finally
-    [&shell, &shellcmdflag, &shellredir] = saved
-  endtry
-
-  return result
-enddef
-
-def System(cmd: any): list<string>
-  if cmd->type() != v:t_string && cmd->type() != v:t_list
-    throw 'Invalid command type, it must be a string or list<string>'
-  endif
-
-  return WithShell(
-    () => systemlist(cmd->type() == v:t_string ? cmd : cmd->join(' '))
-  )
-enddef
-
-def AsyncOnStdout(Callback: func, opts: Opts, _jobId: number, message: any, event: string): Opts
-  if event ==? 'exit'
-    Callback(opts.out)
-  endif
-
-  const list = message->type() == v:t_string ? [message] : message
-
-  for msg in list
-    opts.out->add(msg)
-  endfor
-
-  return opts
-enddef
-
-def SystemAsync(cmd: any, Callback: func, opts: Opts = {})
-  var Ref = function(AsyncOnStdout, [Callback, { out: [] }])
-
-  var jobOpts = { on_stdout: Ref, on_stderr: Ref, on_exit: Ref, }
-  var job = WithShell(() => jobs.Start(cmd, jobOpts))
-
-  if job <= 0
-    Callback([])
-  endif
-enddef
-
-def GitVersion(): list<number>
-  var result = System('git --version')->get(0, '')
-
-  if result->empty()
-    return []
-  endif
-
-  var components = result->split('\D\+')
-
-  if components->empty()
-    return []
-  endif
-
-  var parts: list<number> = []
-
-  for part in components
-    parts->add(part->str2nr())
-  endfor
-
-  return parts
-enddef
-
-def StatusOk(name: string, text: string): string
-  return StatusString('ok', name, text)
-enddef
-
-def StatusProgress(name: string, text: string): string
-  return StatusString('progress', name, text)
-enddef
-
-def StatusError(name: string, text: string): string
-  return StatusString('error', name, text)
-enddef
-
-def StatusString(type: string, name: string, text: string): string
-  return printf(
-    '%s %s — %s',
-    type ==? 'progress' ? Progress.Next() : ICONS[type],
-    name,
-    text
-  )
-enddef
-
-def Confirm(question: string): bool
-  return ConfirmWithOptions(question, "&Yes\nNo") ==? 1
-enddef
-
-def ConfirmWithOptions(question: string, options: string): number
-  silent! exec 'redraw'
-
-  try
-    return question->confirm(options)
-  catch
-    return 0
-  endtry
-enddef
-
-def Trim(str: string): string
-  return str->substitute('^\s*\(.\{-}\)\s*$', '\1', '')
-enddef
-
-def Setline(line: number, content: any)
-  if content->type() != v:t_string && content->type() != v:t_list
-    throw 'Invalid content type, must be a string or list<string>'
-  endif
-
-  var window = bufwinnr(PACKIX_BUFFER)
-
-  if window < 0
-    return
-  endif
-
-  if winnr() !=? window
-    silent! exec ':' .. window .. 'wincmd w'
-  endif
-
-  setline(line, content)
-enddef
-
-def SymlinkCommand(src: string, dest: string): string
-  if executable('ln')
-    return printf('ln -sf %s %s', shellescape(src), shellescape(dest))
-  endif
-
-  if has('win32') && executable('mklink')
-    return printf('mklink %s %s', shellescape(src), shellescape(dest))
-  endif
-
-  return null_string
-enddef
-
-# --- Implementation
-
-class JobInfo
-  var job: job
-  var opts: Opts
-  var channel: channel
-  public var buffer: string = ''
-
-  def new(job: job, opts: Opts)
-    this.opts = opts
-    this.job = job
-    this.channel = job->job_getchannel()
-  enddef
-endclass
-
-class JobManager
-  var _jobs: dict<JobInfo>
-  var _jobIdSeq: number
-
-  def new()
-    this._jobs = {}
-    this._jobIdSeq = 0
-  enddef
-
-  def Start(cmd: any, opts: Opts): number
-    if cmd->type() != v:t_string && cmd->type() != v:t_list
-      throw 'Invalid command type, it must be a string or list<string>'
-    endif
-
-    var jobId = this._NextJobId()
-
-    var jobCmd = cmd->type() == v:t_list ? join(cmd, ' ') : cmd
-    jobCmd = printf('%s %s "%s"', &shell, &shellcmdflag, jobCmd)
-
-    var jobOpt: Opts = {
-      out_cb: function(this._StdoutCallback, [jobId, opts]),
-      err_cb: function(this._StderrCallback, [jobId, opts]),
-      exit_cb: function(this._ExitCallback, [jobId, opts]),
-    }
-
-    if opts->has_key('cwd')
-      jobOpt.cwd = opts.cwd
-    endif
-
-    if opts->has_key('env')
-      jobOpt.env = opts.env
-    endif
-
-    jobOpt.mode = 'raw'
-    jobOpt.noblock = 1
-
-    var job = jobCmd->job_start(jobOpt)
-
-    if job->job_status() !=? 'run'
-      return -1
-    endif
-
-    this._jobs[jobId] = JobInfo.new(job, opts)
-
-    return jobId
-  enddef
-
-  def Remove(jobId: number)
-    if this._jobs->has_key(jobId)
-      this._jobs->remove(jobId)
-    endif
-  enddef
-
-  # Currently unused
-  def Stop(jobId: number)
-    if this._jobs->has_key(jobId)
-      var info: JobInfo = this._jobs[jobId]
-
-      if info->type(.job) == v:t_job
-        info.job->job_stop()
-      elseif info->type(.job) == v:t_channel
-        info.job->ch_close()
-      endif
-    endif
-  enddef
-
-  # Currently unused
-  def Send(jobId: number, data: string, opts: Opts)
-    if this._jobs->has_key(jobId)
-      var info: JobInfo = this._jobs[jobId]
-      var close_stdin = opts->get('close_stdin', 0) > 0
-
-      # There is no easy way to know when ch_sendraw() finishes writing data
-      # on a non-blocking channels -- has('patch-8.1.889') -- and because of
-      # this, we cannot safely call ch_close_in().  So when we find ourselves
-      # in this situation (i.e. noblock=1 and close stdin after send) we fall
-      # back to using FlushVimSendraw() and wait for transmit buffer to be
-      # empty
-      #
-      # Ref: https://groups.google.com/d/topic/vim_dev/UNNulkqb60k/discussion
-
-      if !close_stdin
-        info.channel->ch_sendraw(data)
-      else
-        info.buffer ..= data
-
-        this._FlushVimSendraw(jobId, null)
-      endif
-
-      if close_stdin
-        while len(info.buffer) != 0
-          sleep 1m
-        endwhile
-
-        ch_close_in(info.channel)
-      endif
-    endif
-  enddef
-
-  # Currently unused
-  def WaitOne(jobId: number, timeout: number, start: list<any>): number
-    if !this._jobs->has_key(jobId)
-      return -3
-    endif
-
-    var info = this._jobs[jobId]
-
-    var _timeout = timeout / 1000.0
-
-    try
-      while _timeout < 0 || reltimefloat(reltime(start)) < _timeout
-        var jobInfo = info.job->job_info()
-
-        if jobInfo.status ==# 'dead'
-          return jobInfo.exitval
-        elseif jobInfo.status ==# 'fail'
-          return -3
-        endif
-
-        sleep 1m
-      endwhile
-    catch /^Vim:Interrupt$/
-      return -2
-    endtry
-
-    return -1
-  enddef
-
-  # Currently unused
-  def Wait(jobIds: list<number>, timeout: number): list<number>
-    var start = reltime()
-    var exitcode = 0
-    var ret: list<number> = []
-
-    for jobId in jobIds
-      if exitcode != -2 # Not interrupted
-        exitcode = this.WaitOne(jobId, timeout, start)
-      endif
-
-      ret += [exitcode]
-    endfor
-
-    return ret
-  enddef
-
-  # Currently unused
-  def Pid(jobId: number): number
-    if !this._jobs->has_key(jobId)
-      return 0
-    endif
-
-    var info = this._jobs[jobId]
-    var jobInfo = info.job->job_info()
-
-    if jobInfo->type() == v:t_dict && jobInfo->has_key('process')
-      return jobInfo.process
-    endif
-
-    return 0
-  enddef
-
-  def _NextJobId(): number
-    this._jobIdSeq += 1
-    return this._jobIdSeq
-  enddef
-
-  def _StdoutCallback(jobId: number, opts: Opts, job: any, data: string)
-    if opts->has_key('on_stdout')
-      opts.on_stdout(jobId, split(data, "\n", 1), 'stdout')
-    endif
-  enddef
-
-  def _StderrCallback(jobId: number, opts: Opts, job: any, data: string)
-    if opts->has_key('on_stderr')
-      opts.on_stderr(jobId, split(data, "\n", 1), 'stderr')
-    endif
-  enddef
-
-  def _ExitCallback(jobId: number, opts: Opts, job: any, status: number)
-    if opts->has_key('on_exit')
-      opts.on_exit(jobId, status, 'exit')
-    endif
-
-    this.Remove(jobId)
-  enddef
-
-  def _FlushVimSendraw(jobId: number, timerId: number = null)
-    # https://github.com/vim/vim/issues/2548
-    # https://github.com/natebosch/vim-lsc/issues/67#issuecomment-357469091
-
-    if !this._jobs->has_key(jobId)
-      return
-    endif
-
-    var info = this._jobs[jobId]
-
-    if info != null
-      sleep 1m
-
-      if info.buffer->len() <= 4096
-        info.channel->ch_sendraw(info.buffer)
-        info.buffer = ''
-      else
-        var toSend = info.buffer[:4095]
-        info.buffer = info.buffer[4096:]
-
-        info.channel->ch_sendraw(toSend)
-        timer_start(1, function(this._FlushVimSendraw, [jobId]))
-      endif
-    endif
-  enddef
-endclass
-
-interface IManager
-  def AddRequired(name: string, requiredPackage: any)
-  def DefaultPluginType(): string
-  def Dir(): string
-  def SupportsSubmoduleProgress(): bool
-endinterface
-
-export class PluginInfo
-  var name: string
-  var type: string
-  var url: string
-  var dir: string
-  var rev: string
-  var headRef: string
-  var installed: bool
-  var isLocal: bool
-  var mainBranch: string
-  var rtpDir: string
-endclass
-
-class Plugin
-  var name: string
-  var dir: string
-
-  var branch: string
-  var commit: string
-  var tag: string
-  var rtp: string
-  var rtpDir: string = ''
-  var type: string
-  var url: string
-  var frozen: bool
-  var local: bool
-
-  var rev: string
-  var installed: bool
-  var updated: bool = false
-  var updateFailed: bool = false
-  var installedNow: bool = false
-  var hookFailed: bool = false
-  var lastUpdate: list<string> = []
-
-  var status: string = ''
-  var statusMessage: string = ''
-  var headRef: string = ''
-  var mainBranch: string = ''
-
-  var do: any
-  var triggers: dict<list<any>> = { map: [], cmd: [] }
-  var requires: any
-
-  var _packix: IManager
-
-  var _eventMessages: list<string> = []
-  var _hookEventMessages: list<string> = []
-
-  def new(name: string, opts: Opts, packix: IManager)
-    this.type = opts->get('type', packix.DefaultPluginType())
-    this._packix = packix
-
-    this.branch = opts->get('branch', '')
-    this.commit = opts->get('commit', '')
-    this.tag = opts->get('tag', '')
-    this.frozen = opts->get('frozen', false)
-    this.do = opts->get('do', '')
-    this.local = opts->get('local', false)
-    this.requires = Wrap(opts->get('requires', []))
-
-    if ['opt', 'start']->index(this.type) < 0
-      this.type = 'start'
-    endif
-
-    this.name = opts->get('name')->empty() ? name->split('/')[-1] : opts.name
-    this.dir = printf('%s%s%s%s%s', packix.Dir(), SLASH, this.type, SLASH, this.name)
-
-    this.rtp = opts->get('rtp', '')
-
-    if !this.rtp->empty()
-      var rtp = this.rtp
-        ->substitute('[\\\/]$', '', '')
-        ->substitute('[\\\/]', '__', 'g')
-
-      this.rtpDir = printf('%s__%s', this.dir, rtp)
-    endif
-
-    # Deferred loading adapted from junegunn/vim-plug, only supporting commands, not Plug
-    # maps, for now. Applied *only* for 'opt' plugins.
-    if this.type == 'opt' && opts->has_key('on')
-      for trigger in Wrap(opts.on)
-        if trigger !~# '^:\=[A-Z]'
-          throw 'Invalid `on` option: ' .. trigger ..
-            ' should start with an uppercase letter.'
-        endif
-
-        var t = trigger->substitute('^:', '', '')->substitute('!*$', '', '')
-
-        DeferCommand(t, this)
-        this.triggers.cmd->add(t)
-      endfor
-    endif
-
-    this.url = name =~? '^\(http\|git@\).*' ? name :
-      this.local ? name : printf('https://github.com/%s', name)
-
-    if this.dir->isdirectory()
-      this.installed = true
-
-      if IS_WINDOWS
-        this._UpdateRevisionAsync()
-        this._UpdateHeadRefAsync()
-        this._UpdateMainBranchAsync()
-      endif
-    endif
-
-    for require in this.requires
-      this._packix.AddRequired(this.name, require)
-    endfor
-  enddef
-
-  def RemoveTriggers()
-    for cmd in this.triggers.cmd
-      execute 'silent! delcommand ' .. cmd
-    endfor
-  enddef
-
-  def SetUpdateFailed()
-    this.updateFailed = true
-  enddef
-
-  def SetHookFailed()
-    this.hookFailed = true
-  enddef
-
-  def GetInfo(): PluginInfo
-    if !IS_WINDOWS
-      this._UpdateRevision()
-      this._UpdateHeadRef()
-      this._UpdateMainBranch()
-    endif
-
-    return PluginInfo.new(
-      this.name,
-      this.type,
-      this.url,
-      this.dir,
-      this.rev,
-      this.headRef,
-      this.installed,
-      this.local,
-      this.mainBranch,
-      this.rtpDir
-    )
-  enddef
-
-  def Queue()
-    if !IS_WINDOWS
-      this._UpdateRevision()
-    endif
-
-    this.SetStatus('progress', this.installed ? 'Updating…' : 'Installing…')
-  enddef
-
-  def SetStatus(status: string, message: string)
-    this.status = status
-    this.statusMessage = message
-  enddef
-
-  def Command(depth: any): string
-    if this.dir->isdirectory() && !this.local
-      return this._UpdateGitCommand()
-    endif
-
-    if this.local
-      return this._LocalCommand()
-    endif
-
-    return this._InstallGitCommand(depth)
-  enddef
-
-  def GetMainBranch(): string
-    return this._UpdateMainBranch()
-  enddef
-
-  def UpdateInstallStatus(): string
-    if !this.installed
-      this.installed = true
-      this.updated = true
-      this.installedNow = true
-      this._SymlinkRtp()
-      return 'Installed!'
-    endif
-
-    if this._HasUpdates()
-      this.updated = true
-      this._GetLastUpdate()
-      this._SymlinkRtp()
-      return 'Updated!'
-    endif
-
-    return 'Already up to date.'
-  enddef
-
-  def GetLastHookEventMessage(): string
-    return this._hookEventMessages->get(-1, '')
-  enddef
-
-  def GetLastEventMessage(): string
-    return this._eventMessages->get(-1, '')
-  enddef
-
-  def LogHookEventMessages(messages: list<string>)
-    for message in messages
-      var msg = Trim(message)
-
-      if !msg->empty() && this._hookEventMessages->index(msg) < 0
-        this._hookEventMessages->add(msg)
-      endif
-    endfor
-  enddef
-
-  def LogEventMessages(messages: list<string>)
-    for message in messages
-      var msg = Trim(message)
-
-      if !msg->empty() && this._eventMessages->index(msg) < 0
-        this._eventMessages->add(msg)
-      endif
-    endfor
-  enddef
-
-  def GetShortHookErrorMessage(): string
-    return Trim(this._hookEventMessages->get(-1, ''))
-  enddef
-
-  def GetShortErrorMessage(): string
-    return Trim(this._eventMessages->get(-1, ''))
-  enddef
-
-  def GetStdoutMessages(): list<string>
-    var result: list<string> = []
-
-    var messages = this.hookFailed ? this._hookEventMessages : this._eventMessages
-
-    for msg in messages
-      for line in msg->split('\r')
-        if !Trim(line)->empty()
-          result->add(line)
-        endif
-      endfor
-    endfor
-
-    return result
-  enddef
-
-  def GetContentForStatus(): list<string>
-    if !this.installed
-      var error = this.GetShortErrorMessage()
-      var last = !error->empty() ? ' Last line of error message:' : ''
-      var status = printf('Not installed.%s', last)
-      var result = [StatusError(this.name, status)]
-
-      if !error->empty()
-        result->add(printf('  * %s', error))
-      endif
-
-      return result
-    endif
-
-    if this.updateFailed
-      return [
-        StatusError(this.name, 'Install/update failed. Last line of error message:'),
-        printf('  * %s', this.GetShortErrorMessage())
-      ]
-    endif
-
-    if this.hookFailed
-      return [
-        StatusError(this.name, 'Post hook failed. Last line of error message:'),
-        printf('  * %s', this.GetShortHookErrorMessage())
-      ]
-    endif
-
-    if this.installedNow
-      return [StatusOk(this.name, 'Installed!')]
-    endif
-
-    if !this.updated
-      this._GetLastUpdate()
-    endif
-
-    if this.lastUpdate->empty()
-      return [StatusOk(this.name, 'OK.')]
-    endif
-
-    var text = this.updated ? 'Updated!' : 'Last update:'
-    var result = [StatusOk(this.name, text)]
-
-    for line in this.lastUpdate
-      result->add(printf('  * %s', line))
-    endfor
-
-    return result
-  enddef
-
-  def _FetchRevisionCommand(): string
-    return printf('git -C %s rev-parse HEAD', this.dir->shellescape())
-  enddef
-
-  def _UpdateRevision()
-    this.rev = this._FetchRevision()
-  enddef
-
-  def _FetchRevision(): string
-    return this._ParseRevision(System(this._FetchRevisionCommand()))
-  enddef
-
-  def _UpdateRevisionAsync()
-    SystemAsync(
-      this._FetchRevisionCommand(),
-      (output) => {
-        this.rev = this._ParseRevision(output)
-      }
-    )
-  enddef
-
-  def _ParseRevision(output: list<string>): string
-    var rev = output->get(0, '')
-    return rev =~? '^fatal' ? '' : rev
-  enddef
-
-  def _UpdateHeadRefCommand(): string
-    return printf('git -C %s rev-parse --abbrev-ref HEAD', this.dir->shellescape())
-  enddef
-
-  def _UpdateHeadRef(): string
-    if this.headRef->empty()
-      this.headRef = this._ParseHeadRef(System(this._UpdateHeadRefCommand()))
-    endif
-
-    return this.headRef
-  enddef
-
-  def _UpdateHeadRefAsync()
-    if !this.headRef->empty()
-      return
-    endif
-
-    SystemAsync(
-      this._UpdateHeadRefCommand(),
-      (output) => {
-        this.headRef = this._ParseHeadRef(output)
-      }
-    )
-  enddef
-
-  def _ParseHeadRef(output: list<string>): string
-    var headRef = output->get(0, '')
-    return headRef =~? '^fatal' ? '' : headRef
-  enddef
-
-  def _UpdateMainBranchCommand(): string
-    return printf(
-      'git -C %s symbolic-ref refs/remotes/origin/HEAD --short',
-      this.dir->shellescape()
-    )
-  enddef
-
-  def _UpdateMainBranch(): string
-    if this.mainBranch->empty()
-      this.mainBranch = this._ParseMainBranch(System(this._UpdateMainBranchCommand()))
-    endif
-
-    return this.mainBranch
-  enddef
-
-  def _UpdateMainBranchAsync()
-    if !this.mainBranch->empty()
-      return
-    endif
-
-    SystemAsync(
-      this._UpdateMainBranchCommand(),
-      (output) => {
-        this.mainBranch = this._ParseMainBranch(output)
-      }
-    )
-  enddef
-
-  def _ParseMainBranch(output: list<string>): string
-    var ref = output->get(0, '')
-    return ref =~? '^fatal' ? '' : ref->substitute('^origin/', '', '')
-  enddef
-
-  def _GitCheckoutTarget(): string
-    for target in [this.commit, this.tag, this.branch]
-      if !target->empty()
-        return target
-      endif
-    endfor
-
-    return null_string
-  enddef
-
-  def _GitCheckoutCommand(target: string): string
-    return target->empty() ? '' : printf('git checkout %s', target->shellescape())
-  enddef
-
-  def _UpdateGitCommand(): string
-    this._UpdateHeadRef()
-    this._UpdateMainBranch()
-
-    var target = this._GitCheckoutTarget()
-    var checkoutCommand: string
-    var isOnBranch = false
-
-    var hasCheckout = !target->empty()
-
-    if target->empty()
-      if this.headRef ==? 'HEAD' && !this.mainBranch->empty()
-        isOnBranch = true
-        checkoutCommand = this._GitCheckoutCommand(this.mainBranch)
-      endif
-    else
-      isOnBranch = target ==? this.branch
-      checkoutCommand = this._GitCheckoutCommand(target)
-    endif
-
-    var refreshCommand = isOnBranch ?
-      'git pull --ff-only --progress --rebase=false' :
-      printf('git fetch %s --depth 999999', this.url->shellescape())
-
-    return [
-      this._CdCommand(),
-      checkoutCommand,
-      refreshCommand,
-      this._GitUpdateSubmoduleCommand()
-    ]->filter((_, v) => !v->empty())->join(' && ')
-  enddef
-
-  def _GitCloneCommand(depth: string): string
-    var target: string
-
-    if this.commit->empty()
-      for candidate in [this.tag, this.branch]
-        if !candidate->empty()
-          target = candidate
-          break
-        endif
-      endfor
-    endif
-
-    target = target->empty() ? '' : printf(' --branch %s', target->shellescape())
-
-    return printf(
-      'git clone --progress %s %s --depth %s --no-single-branch%s',
-      this.url->shellescape(),
-      this.dir->shellescape(),
-      depth,
-      target
-    )
-  enddef
-
-  def _CdCommand(): string
-    return IS_WINDOWS ?
-      printf('cd /d %s', this.dir->shellescape()) :
-      printf('cd %s', this.dir->shellescape())
-  enddef
-
-  def _GitUpdateSubmoduleCommand(): string
-    return printf(
-      'git submodule update --init --recursive%s',
-      this._packix.SupportsSubmoduleProgress() ? ' --progress' : ''
-    )
-  enddef
-
-  def _InstallGitCommand(depth: any): string
-    return join([
-      this._GitCloneCommand(depth->string()),
-      this._CdCommand(),
-      this._GitUpdateSubmoduleCommand()
-    ], ' && ')
-  enddef
-
-  def _LocalCommand(): string
-    if this.dir->isdirectory()
-      return null_string
-    endif
-
-    var cmd = SymlinkCommand(this.url->fnamemodify(':p'), this.dir)
-
-    if !cmd->empty()
-      return cmd
-    endif
-
-    return printf(
-      'echo Cannot install %s locally, linking tool not found.', this.name
-    )
-  enddef
-
-  def _HasUpdates(): bool
-    return !this.rev->empty() && this.rev !=? this._FetchRevision()
-  enddef
-
-  def _GetLastUpdate()
-    var commits = System(printf(
-      'git -C %s log --color=never --pretty=format:%s --no-show-signature HEAD@{1}',
-      this.dir->shellescape(), shellescape('%h %s (%cr)')
-    ))
-
-    this.lastUpdate = commits->filter((_, v) => v !=? '' && v !~? '^fatal')
-  enddef
-
-  def _SymlinkRtp()
-    if this.rtpDir->empty()
-      return
-    endif
-
-    var dir = printf('%s/%s', this.dir, this.rtp)
-
-    if !this.rtpDir->isdirectory()
-      var cmd = SymlinkCommand(dir, this.rtpDir)
-
-      if !cmd->empty()
-        System(cmd)
-      endif
-    endif
-  enddef
-endclass
-
-# Handle demand-loaded 'opt' plugins.
-final DeferredCommands: dict<list<Plugin>> = {}
-
-def DeferCommand(trigger: string, plugin: Plugin)
-  if !DeferredCommands->has_key(trigger)
-    var fcall = printf('call RunDeferredCommand("%s", "<bang>", <line1>, <line2>, <q-args>)', trigger)
-    var cmd = printf('command! -nargs=* -range -bang -complete=file %s %s', trigger, fcall)
-
-    execute cmd
-  endif
-
-  DeferredCommands[trigger] = DeferredCommands->get(trigger, [])->add(plugin)
-enddef
-
-def RunDeferredCommand(name: string, bang: any, line1: any, line2: any, args: any)
-  if !DeferredCommands->has_key(name)
-    throw 'Command ' .. name .. ' is not deferred.'
-  endif
-
-  execute 'delcommand ' .. name
-
-  var plugins = DeferredCommands[name]
-
-  remove(DeferredCommands, name)
-
-  for plugin in plugins->reverse()
-    plugin.RemoveTriggers()
-
-    try
-      execute 'packadd ' .. plugin.name
-
-      if exists('#User#' .. plugin.name)
-        execute 'doautocmd <nomodeline> User ' .. plugin.name
-      endif
-    catch /^Vim\%((\a\+)\)\=:E919:/
-    endtry
-  endfor
-
-  command Gist
-
-  execute printf(
-    '%s%s%s %s',
-    (line1 == line2 ? '' : (line1 .. ',' .. line2)),
-    name,
-    bang,
-    args
-  )
-enddef
-
-def LoadPlugin(wanted: Plugin)
-  if &runtimepath->empty()
-    &runtimepath = wanted.dir
-  else
-    &runtimepath ..= printf(',%s', wanted.dir)
-  endif
-
-  for path in ['plugin/**/*.vim', 'after/plugin/**/*.vim']
-    var full_path = printf('%s/%s', wanted.dir, path)
-
-    if !full_path->glob()->empty()
-      silent exec 'source ' .. full_path
-    endif
-  endfor
-enddef
-
-export class Manager implements IManager
+import autoload 'packix/core.vim'
+import autoload 'packix/git.vim'
+import autoload 'packix/jobs.vim'
+import autoload 'packix/plug.vim'
+import autoload 'packix/status.vim'
+
+export class Packix
   var _commandType: string = ''
-  var _depth: number = DEFAULT_DEPTH
-  var _disableDefaultMappings: bool = DISABLE_DEFAULT_MAPPINGS
-  var _gitVersion: list<number>
+  var _depth: number = 5
+  var _enableDefaultMappings: bool = true
   var _installRan: bool = false
-  var _jobs: number = DEFAULT_JOBS
+  var _jobsLimit: number = 8
   var _lastRenderTime: list<number>
-  var _plugins: dict<Plugin> = {}
+  var _plugins: dict<plug.Plugin> = {}
   var _pluginNames: dict<string> = {}
   var _postRunHooksCalled: bool = false
   var _postRunOpts: Opts = {}
-  var _processedPlugins: list<Plugin> = []
+  var _processedPlugins: list<plug.Plugin> = []
   var _remainingJobs: number = 0
   var _result: list<string>
   var _runningJobs: number = 0
   var _startTime: list<number>
   var _timer: number = -1
   var _updateRan: bool = false
-  var _window_cmd: string = DEFAULT_WINDOW_CMD
-  var _defaultPluginType: string = DEFAULT_PLUGIN_TYPE
-  var _dir: string = DEFAULT_DIR
+  var _windowCmd: string = 'vertical topleft new'
+  var _defaultPluginType: string = 'start'
+  var _dir: string = [
+    substitute(split(&packpath, ',')[0], '\(\\\|\/\)', core.SLASH, 'g'),
+    'pack',
+    'packix'
+  ]->join(core.SLASH)
 
   static const VERSION = '1.1.0'
 
@@ -1088,7 +77,7 @@ export class Manager implements IManager
     if opts->has_key('dir')
       this._dir = opts.dir
         ->fnamemodify(':plugin')
-        ->substitute('\' .. SLASH .. '$', '', '')
+        ->substitute($'\{core.SLASH}$', '', '')
     endif
 
     if opts->has_key('depth')
@@ -1096,11 +85,11 @@ export class Manager implements IManager
     endif
 
     if opts->has_key('jobs')
-      this._jobs = opts.jobs
+      this._jobsLimit = opts.jobs
     endif
 
     if opts->has_key('window_cmd')
-      this._window_cmd = opts.window_cmd
+      this._windowCmd = opts.window_cmd
     endif
 
     if opts->has_key('default_plugin_type')
@@ -1108,27 +97,17 @@ export class Manager implements IManager
     endif
 
     if opts->has_key('disable_default_mappings')
-      this._disableDefaultMappings = opts.disable_default_mappings
+      this._enableDefaultMappings = !opts.disable_default_mappings
     endif
 
     this._lastRenderTime = reltime()
-    this._gitVersion = GitVersion()
 
-    silent! mkdir(printf('%s%s%s', this._dir, SLASH, 'opt'), 'p')
-    silent! mkdir(printf('%s%s%s', this._dir, SLASH, 'start'), 'p')
+    silent! mkdir(printf('%s%s%s', this._dir, core.SLASH, 'opt'), 'p')
+    silent! mkdir(printf('%s%s%s', this._dir, core.SLASH, 'start'), 'p')
   enddef
 
   def DefaultPluginType(): string
     return this._defaultPluginType
-  enddef
-
-  def SupportsSubmoduleProgress(): bool
-    if this._gitVersion->empty()
-      return false
-    endif
-
-    return this._gitVersion->get(0, 0) >= 2 &&
-      this._gitVersion->get(1, 0) >= 11
   enddef
 
   def Dir(): string
@@ -1136,7 +115,7 @@ export class Manager implements IManager
   enddef
 
   def Add(url: string, opts: Opts = {})
-    this._SavePlugin(Plugin.new(url, opts, this))
+    this._SavePlugin({ url: url, opts: opts })
   enddef
 
   def AddRequired(url: string, requiredPackage: any)
@@ -1146,22 +125,22 @@ export class Manager implements IManager
     endif
 
     if requiredPackage->type() != v:t_dict
-      throw "'requires' values must be strings or dictionaries for '" .. url .. "'."
+      throw $'`requires` values must be strings or dictionaries for `{url}`.'
     endif
 
     var requiredUrl: string = requiredPackage->get('url', '')
     var requiredOpts: Opts = requiredPackage->get('opts', {})
 
     if requiredUrl->empty()
-      throw "Missing 'requires' package url for '" .. url .. "'."
+      throw $'Missing `requires` package url for `{url}`.'
     endif
 
-    this._SavePlugin(Plugin.new(requiredUrl, requiredOpts, this))
+    this._SavePlugin({ url: requiredUrl, opts: requiredOpts })
   enddef
 
   def Local(path: string, opts: Opts = {})
     opts.local = true
-    this._SavePlugin(Plugin.new(path, opts, this))
+    this._SavePlugin({ url: path, opts: opts })
   enddef
 
   def Install(opts: Opts)
@@ -1169,13 +148,13 @@ export class Manager implements IManager
     this._result = []
     this._processedPlugins = this._plugins
       ->values()
-      ->filter((_, val: Plugin) => !val.installed)
+      ->filter((_, val: plug.Plugin) => !val.installed)
 
     var onlyPlugins: list<string> = opts->get('plugins', [])
 
     if !onlyPlugins->empty()
       this._processedPlugins = this._processedPlugins
-        ->filter((_, val: Plugin) => onlyPlugins->index(val.name) > -1)
+        ->filter((_, val: plug.Plugin) => onlyPlugins->index(val.name) > -1)
     endif
 
     this._remainingJobs = this._processedPlugins->len()
@@ -1190,7 +169,7 @@ export class Manager implements IManager
 
     this._OpenBuffer()
 
-    if HAS_TIMERS
+    if core.HAS_TIMERS
       this._timer = timer_start(100, (timer) => this._Render(), { repeat: -1 })
     else
       this._RenderIfNoTimers()
@@ -1220,13 +199,13 @@ export class Manager implements IManager
     this._result = []
     this._processedPlugins = this._plugins
       ->values()
-      ->filter((_, val: Plugin) => val.frozen == false || val.local == false)
+      ->filter((_, val: plug.Plugin) => val.frozen == false || val.local == false)
 
     var onlyPlugins: list<string> = opts->get('plugins', [])
 
     if !onlyPlugins->empty()
       this._processedPlugins = this._processedPlugins
-        ->filter((_, val: Plugin) => onlyPlugins->index(val.name) > -1)
+        ->filter((_, val: plug.Plugin) => onlyPlugins->index(val.name) > -1)
     endif
 
     this._remainingJobs = this._processedPlugins->len()
@@ -1242,7 +221,7 @@ export class Manager implements IManager
 
     this._OpenBuffer()
 
-    if HAS_TIMERS
+    if core.HAS_TIMERS
       this._timer = timer_start(100, (timer) => this._Render(), { repeat: -1 })
     else
       this._RenderIfNoTimers()
@@ -1264,7 +243,7 @@ export class Manager implements IManager
   enddef
 
   def Clean()
-    var folders = glob(printf('%s%s*%s*', this._dir, SLASH, SLASH), 0, 1)
+    var folders = glob(printf('%s%s*%s*', this._dir, core.SLASH, core.SLASH), 0, 1)
     this._processedPlugins = this._plugins->values()
 
     var plugins: list<string> = []
@@ -1293,15 +272,15 @@ export class Manager implements IManager
     var index = 3
 
     for item in toClean
-      content->add(StatusString('waiting', item, 'Waiting for confirmation…'))
+      content->add(status.Set('waiting', item, 'Waiting for confirmation…'))
 
       lines[item] = index
       index += 1
     endfor
 
-    Setline(1, content)
+    core.Setline(1, content)
 
-    var selected = ConfirmWithOptions(
+    var selected = core.ConfirmWithOptions(
       toClean->len() == 1 ? 'Remove folder?' : 'Remove folders?',
       "&Yes\n&No\n&Ask for each folder"
     )
@@ -1315,16 +294,16 @@ export class Manager implements IManager
       var line = lines[item]
 
       if selected ==? 3
-        if !Confirm(printf("Remove '%s'?", item))
-          Setline(line, StatusOk(item, 'Skipped.'))
+        if !core.Confirm(printf("Remove '%s'?", item))
+          core.Setline(line, status.SetOk(item, 'Skipped.'))
           continue
         endif
       endif
 
       if item->delete('rf') !=? 0
-        Setline(line, StatusError(item, 'Failed.'))
+        core.Setline(line, status.SetError(item, 'Failed.'))
       else
-        Setline(line, StatusOk(item, 'Removed!'))
+        core.Setline(line, status.SetOk(item, 'Removed!'))
       endif
     endfor
 
@@ -1342,11 +321,11 @@ export class Manager implements IManager
     if this._installRan
       this._processedPlugins = this._plugins
         ->values()
-        ->filter((_, val: Plugin) => val.installedNow == true)
+        ->filter((_, val: plug.Plugin) => val.installedNow == true)
     elseif this._updateRan
       this._processedPlugins = this._plugins
         ->values()
-        ->filter((_, val: Plugin) => val.updated == true)
+        ->filter((_, val: plug.Plugin) => val.updated == true)
     else
       this._processedPlugins = this._plugins->values()
     endif
@@ -1354,9 +333,9 @@ export class Manager implements IManager
     var hasErrors = false
 
     for plugin in this._processedPlugins
-      var status = plugin.GetContentForStatus()
+      var lines = plugin.GetContentForStatus()
 
-      for line in status
+      for line in lines
         result->add(line)
       endfor
 
@@ -1368,27 +347,27 @@ export class Manager implements IManager
     this._OpenBuffer()
 
     var content = ['Plugin status:', ''] + result +
-      ['', MSG_PREVIEW_COMMIT, MSG_PLUGIN_DETAILS]
+      ['', core.PREVIEW_COMMIT, core.PLUGIN_DETAILS]
 
     if hasErrors
-      content->add(MSG_VIEW_ERRORS)
+      content->add(core.VIEW_ERRORS)
     endif
 
-    content->add(MSG_QUIT_BUFFER)
+    content->add(core.QUIT_BUFFER)
 
-    Setline(1, content)
+    core.Setline(1, content)
     setlocal nomodifiable
   enddef
 
   def Quit()
     if this._IsRunning()
-      if !Confirm('Installation is in progress. Are you sure you want to quit?')
+      if !core.Confirm('Installation is in progress. Are you sure you want to quit?')
         return
       endif
     endif
 
     silent! timer_stop(this._timer)
-    silent exec ':q!'
+    silent execute ':q!'
   enddef
 
   def OpenSha()
@@ -1404,16 +383,12 @@ export class Manager implements IManager
       return
     endif
 
-    silent exec 'pedit' sha
+    silent execute 'pedit' sha
     wincmd p
     setlocal previewwindow filetype=git buftype=nofile nobuflisted modifiable
 
     var plugin = this._plugins[pluginName]
-
-    var content = System([
-      'git', '-C', plugin.dir->shellescape(), 'show', '--no-color',
-      '--pretty=medium', sha->shellescape()
-    ])
+    var content = git.Show(sha, { dir: plugin.dir })
 
     setline(1, content)
     setlocal nomodifiable
@@ -1422,7 +397,7 @@ export class Manager implements IManager
   enddef
 
   def OpenOutput(isHook: bool = false)
-    var name = Trim(matchstr(getline('.'), '^.\s\zs[^—]*\ze'))
+    var name = core.Trim(matchstr(getline('.'), '^.\s\zs[^—]*\ze'))
     if !this._plugins->has_key(name)
       return
     endif
@@ -1434,7 +409,7 @@ export class Manager implements IManager
       return
     endif
 
-    silent exec 'pedit' name
+    silent execute 'pedit' name
     wincmd p
     setlocal previewwindow filetype=sh buftype=nofile nobuflisted modifiable
     silent :1,$delete _
@@ -1445,11 +420,11 @@ export class Manager implements IManager
   enddef
 
   def GotoPlugin(dir: string): number
-    return search(printf('^[%s]\s.*$', ICONS_STR), dir ==? 'previous' ? 'b' : '')
+    return search(printf('^[%s]\s.*$', status.ICONS_STR), dir ==# 'previous' ? 'b' : '')
   enddef
 
   def OpenPluginDetails()
-    var name = Trim(matchstr(getline('.'), '^.\s\zs[^—]*\ze'))
+    var name = core.Trim(matchstr(getline('.'), '^.\s\zs[^—]*\ze'))
 
     if !this._plugins->has_key(name)
       return
@@ -1457,31 +432,34 @@ export class Manager implements IManager
 
     var plugin = this._plugins[name]
 
-    silent exec 'pedit' plugin.name
+    silent execute 'pedit' plugin.name
     wincmd p
     setlocal previewwindow buftype=nofile nobuflisted modifiable filetype=
     silent :1,$delete _
 
+    var loadType = plugin.type ==# 'start' ? 'Automatic' : 'Manual'
+    var branch = (plugin.branch->empty() ? plugin.GetMainBranch() : plugin.branch)
+
     var content = [
       'Plugin details:',
       '',
-      'Name:         ' .. plugin.name,
-      'Loading type: ' .. (plugin.type ==? 'start' ? 'Automatic' : 'Manual'),
-      'Directory:    ' .. plugin.dir,
-      'Url:          ' .. plugin.url,
-      'Branch:       ' .. (plugin.branch->empty() ? plugin.GetMainBranch() : plugin.branch)
+      $'Name:         {plugin.name}',
+      $'Loading type: {loadType}',
+      $'Directory:    {plugin.dir}',
+      $'Url:          {plugin.url}',
+      $'Branch:       {branch}',
     ]
 
     if !plugin.tag->empty()
-      content->add('Tag:          ' .. plugin.tag)
+      content->add($'Tag:          {plugin.tag}')
     endif
 
     if !plugin.commit->empty()
-      content->add('Commit:       ' .. plugin.commit)
+      content->add($'Commit:       {plugin.commit}')
     endif
 
-    if !plugin.do->empty() && plugin.do->type() ==? type('')
-      content->extend(['', 'Post Install Command:', '    ' .. plugin.do])
+    if !plugin.do->empty() && plugin.do->type() ==# v:t_string
+      content->extend(['', 'Post Install Command:', $'    {plugin.do}'])
     endif
 
     if plugin.frozen
@@ -1494,7 +472,7 @@ export class Manager implements IManager
     nnoremap <silent><buffer> q :q<CR>
   enddef
 
-  def GetPlugins(): list<PluginInfo>
+  def GetPlugins(): list<plug.Info>
     return this._plugins
       ->values()
       ->map((_, plugin) => plugin.GetInfo())
@@ -1504,11 +482,11 @@ export class Manager implements IManager
     return this._plugins->keys()
   enddef
 
-  def GetPlugin(name: string): PluginInfo
+  def GetPlugin(name: string): plug.Info
     var pluginName = this._pluginNames->get(name, name)
 
     if !this._plugins->has_key(pluginName)
-      throw 'No plugin named ' .. name
+      throw $'No plugin named {name}'
     endif
 
     return this._plugins[pluginName].GetInfo()
@@ -1526,7 +504,13 @@ export class Manager implements IManager
     return this._plugins->has_key(pluginName) && this._plugins[pluginName].installed
   enddef
 
-  def _SavePlugin(plugin: Plugin)
+  def _SavePlugin(pluginConfig: Opts)
+    pluginConfig.default_type = this._defaultPluginType
+    pluginConfig.dir = this._dir
+    pluginConfig.add_required = this.AddRequired
+
+    var plugin = plug.Plugin.new(pluginConfig)
+
     if this._plugins->has_key(plugin.name)
       return
     endif
@@ -1582,32 +566,34 @@ export class Manager implements IManager
     this._RenderIfNoTimers(true)
 
     if this._postRunOpts->has_key('on_finish')
-      silent! exec 'redraw'
-      exec this._postRunOpts.on_finish
+      silent! execute 'redraw'
+      execute this._postRunOpts.on_finish
     endif
   enddef
 
   def _OpenBuffer()
-    var buf = bufnr(PACKIX_BUFFER)
+    var buf = bufnr(core.BUFFER)
 
     if buf > -1
-      silent! exec 'b' .. buf
+      silent! execute $'buffer {buf}'
       set modifiable
       silent :1,$delete _
     else
-      exec this._window_cmd PACKIX_BUFFER
+      execute $'{this._windowCmd} {core.BUFFER}'
     endif
 
-    setfiletype packix
-    setlocal buftype=nofile bufhidden=wipe nobuflisted nolist noswapfile nowrap cursorline nospell
+    execute $'setfiletype {core.FILETYPE}'
+    setlocal buftype=nofile bufhidden=wipe nobuflisted nolist noswapfile
+    setlocal nowrap cursorline nospell
+
     syntax clear
 
     syntax match packixCheck /^✓/
-    silent! exec 'syntax match packixPlus /^[+' .. ICONS.progress .. ']/'
-    silent! exec 'syntax match packixPlusText /\(^[+' .. ICONS.progress .. ']\s\)\@<=[^ —]*/'
+    silent! execute $'syntax match packixPlus /^[+{status.ICONS.progress}]/'
+    silent! execute $'syntax match packixPlusText /\(^[+{status.ICONS.progress}]\s\)\@<=[^ —]*/'
     syntax match packixX /^✗/
     syntax match packixStar /^\s\s\*/
-    silent! exec 'syntax match packixStatus /\(^[+' .. ICONS.progress .. '].*—\)\@<=\s.*$/'
+    silent! execute $'syntax match packixStatus /\(^[+{status.ICONS.progress}].*—\)\@<=\s.*$/'
     syntax match packixStatusSuccess /\(^✓.*—\)\@<=\s.*$/
     syntax match packixStatusError /\(^✗.*—\)\@<=\s.*$/
     syntax match packixStatusCommit /\(^\*.*—\)\@<=\s.*$/
@@ -1640,7 +626,7 @@ export class Manager implements IManager
     var bar = printf('[%s%s]', repeat('=', bar_installed), repeat('-', bar_left))
     var text = this._remainingJobs > 0 ? 'Installing' : 'Installed'
     var finished = this._remainingJobs > 0 ? '' :
-      ' - Finished after ' .. split(reltimestr(reltime(this._startTime)))[0] .. ' sec!'
+      $' - Finished after {split(reltimestr(reltime(this._startTime)))[0]} sec!'
 
     return [
       printf('%s plugins %d / %d%s', text, installed, total, finished),
@@ -1650,7 +636,7 @@ export class Manager implements IManager
   enddef
 
   def _RenderIfNoTimers(force: bool = false)
-    if HAS_TIMERS
+    if core.HAS_TIMERS
       return
     endif
 
@@ -1669,42 +655,30 @@ export class Manager implements IManager
     var content = this._GetTopStatus()
 
     for plugin in this._processedPlugins
-      if !plugin.status->empty()
-        content->add(StatusString(plugin.status, plugin.name, plugin.statusMessage))
+      if !plugin.state->empty()
+        content->add(status.Set(plugin.state, plugin.name, plugin.stateMessage))
       endif
     endfor
 
     if this._postRunHooksCalled
       content += [
         '',
-        MSG_NAVIGATE_PLUGINS,
-        MSG_PLUGIN_UPDATES,
-        MSG_PLUGIN_DETAILS,
-        MSG_PREVIEW_COMMIT,
-        MSG_QUIT_BUFFER,
+        core.NAVIGATE_PLUGINS,
+        core.PLUGIN_UPDATES,
+        core.PLUGIN_DETAILS,
+        core.PREVIEW_COMMIT,
+        core.QUIT_BUFFER,
       ]
     endif
 
-    var buf = bufnr(PACKIX_BUFFER)
+    var buf = bufnr(core.BUFFER)
 
-    if HAS_SETBUFLINE
-      setbufline(buf, 1, content)
-    else
-      if &filetype !=? PACKIX_FILETYPE
-        exec ':' .. bufwinnr(PACKIX_BUFFER) .. 'wincmd w'
-      endif
-
-      setline(1, content)
-    endif
+    setbufline(buf, 1, content)
 
     this._lastRenderTime = reltime()
 
     if this._postRunHooksCalled
-      if HAS_SETBUFLINE
-        setbufvar(buf, '&modifiable', 0)
-      else
-        setlocal nomodifiable
-      endif
+      setbufvar(buf, '&modifiable', 0)
 
       silent! timer_stop(this._timer)
     endif
@@ -1713,7 +687,7 @@ export class Manager implements IManager
   def _UpdateRemotePluginsAndHelptags()
     for plugin in this._processedPlugins
       if plugin.updated
-        silent! exec 'helptags' printf('%s%sdoc', plugin.dir, SLASH)->fnameescape()
+        silent! execute 'helptags' printf('%s%sdoc', plugin.dir, core.SLASH)->fnameescape()
       endif
     endfor
   enddef
@@ -1723,10 +697,10 @@ export class Manager implements IManager
       throw 'Invalid command type, it must be a string or list<string>'
     endif
 
-    if opts->has_key('limit_jobs') && this._jobs > 0
-      if this._runningJobs > this._jobs
-        while this._runningJobs > this._jobs
-          silent exec 'redraw'
+    if opts->has_key('limit_jobs') && this._jobsLimit > 0
+      if this._runningJobs > this._jobsLimit
+        while this._runningJobs > this._jobsLimit
+          silent execute 'redraw'
           sleep 100m
         endwhile
       endif
@@ -1742,7 +716,7 @@ export class Manager implements IManager
       jobOpts.cwd = opts.cwd
     endif
 
-    WithShell(() => jobs.Start(cmd, jobOpts))
+    core.WithShell(() => jobsManager.Start(cmd, jobOpts))
   enddef
 
   def _IsRunning(): bool
@@ -1750,7 +724,7 @@ export class Manager implements IManager
   enddef
 
   def _AddMappings()
-    if this._disableDefaultMappings
+    if !this._enableDefaultMappings
       return
     endif
 
@@ -1789,17 +763,17 @@ export class Manager implements IManager
     endif
   enddef
 
-  def _ExitHandler(plugin: Plugin, _jobId: number, status: number, _event: string)
+  def _ExitHandler(plugin: plug.Plugin, _jobId: number, jobStatus: number, _event: string)
     this._RenderIfNoTimers()
 
-    if status != 0
+    if jobStatus != 0
       this._UpdateRunningJobs()
       plugin.SetUpdateFailed()
 
       var error = plugin.GetShortErrorMessage()
       error = error->empty() ? '' : printf(' - %s', error)
 
-      plugin.SetStatus('error', printf('Error (exit status %d)%s', status, error))
+      plugin.SetState('error', printf('Error (exit status %d)%s', jobStatus, error))
       this._RunHooksIfFinished()
 
       return
@@ -1810,25 +784,25 @@ export class Manager implements IManager
     var Hook = plugin.do
 
     if !Hook->empty() && (plugin.updated || forceHooks)
-      LoadPlugin(plugin)
+      plug.Load(plugin)
 
-      plugin.SetStatus('progress', 'Running post update hooks…')
+      plugin.SetState('progress', 'Running post update hooks…')
 
       if Hook->type() == v:t_func
         try
           Hook(plugin)
-          plugin.SetStatus('ok', 'Finished running post update hook!')
+          plugin.SetState('ok', 'Finished running post update hook!')
         catch
-          plugin.SetStatus('error', printf('Error on hook - %s', v:exception))
+          plugin.SetState('error', printf('Error on hook - %s', v:exception))
         endtry
 
         this._UpdateRunningJobs()
       elseif Hook[0] == ':'
         try
-          exec Hook[1 : ]
-          plugin.SetStatus('ok', 'Finished running post update hook!')
+          execute Hook[1 : ]
+          plugin.SetState('ok', 'Finished running post update hook!')
         catch
-          plugin.SetStatus('error', printf('Error on hook - %s', v:exception))
+          plugin.SetState('error', printf('Error on hook - %s', v:exception))
         endtry
         this._UpdateRunningJobs()
       else
@@ -1842,51 +816,54 @@ export class Manager implements IManager
         )
       endif
     else
-      plugin.SetStatus('ok', text)
+      plugin.SetState('ok', text)
       this._UpdateRunningJobs()
     endif
 
     this._RunHooksIfFinished()
   enddef
 
-  def _StdoutHandler(plugin: Plugin, _jobId: number, message: list<string>, event: string)
+  def _StdoutHandler(plugin: plug.Plugin, _jobId: number, message: list<string>, event: string)
     plugin.LogEventMessages(message)
 
     this._RenderIfNoTimers()
-    plugin.SetStatus('progress', plugin.GetLastEventMessage())
+    plugin.SetState('progress', plugin.GetLastEventMessage())
 
     this._RunHooksIfFinished()
   enddef
 
-  def _HookExitHandler(plugin: Plugin, _jobId: number, status: number, _event: string)
+  def _HookExitHandler(plugin: plug.Plugin, _jobId: number, jobStatus: number, _event: string)
     this._RenderIfNoTimers()
     this._UpdateRunningJobs()
 
-    if status == 0
-      plugin.SetStatus('ok', 'Finished running post update hook!')
+    if jobStatus == 0
+      plugin.SetState('ok', 'Finished running post update hook!')
     else
       var error = plugin.GetShortHookErrorMessage()
       error = !error->empty() ? printf(' - %s', error) : ''
 
       plugin.SetHookFailed()
-      plugin.SetStatus('error', printf('Error on hook (exit status %d)%s', status, error))
+      plugin.SetState('error', printf('Error on hook (exit status %d)%s', jobStatus, error))
     endif
 
     this._RunHooksIfFinished()
   enddef
 
-  def _HookStdoutHandler(plugin: Plugin, _jobId: number, message: list<string>, event: string)
+  def _HookStdoutHandler(plugin: plug.Plugin, _jobId: number, message: list<string>, event: string)
     this._RenderIfNoTimers()
 
     plugin.LogHookEventMessages(message)
-    plugin.SetStatus('progress', plugin.GetLastHookEventMessage())
+    plugin.SetState('progress', plugin.GetLastHookEventMessage())
   enddef
 endclass
 
-final jobs = JobManager.new()
+# --- Implementation
+
+final jobsManager = jobs.Manager.new()
+
 var SetupCallback: func
 var SetupOpts: Opts
-var Instance: Manager
+var Instance: Packix
 
 export def Setup(Callback: any, opts: Opts = {})
   if Callback->empty()
@@ -1896,9 +873,9 @@ export def Setup(Callback: any, opts: Opts = {})
   if Callback->type() == v:t_func
     SetupCallback = Callback
   elseif Callback->type() == v:t_string
-    if !exists('*' .. Callback)
-      throw 'Function ' .. Callback ..
-        ' does not exist for packix setup. Try providing a function or funcref.'
+    if !exists($'*{Callback}')
+      throw $'Function {Callback} does not exist for packix setup. Try' ..
+        ' providing a function or funcref.'
     endif
 
     SetupCallback = funcref(Callback)
@@ -1915,7 +892,7 @@ export def Setup(Callback: any, opts: Opts = {})
 enddef
 
 export def Init(opts: Opts = {})
-  Instance = Manager.new(opts)
+  Instance = Packix.new(opts)
 enddef
 
 export def Add(url: string, opts: Opts = {})
@@ -1942,7 +919,7 @@ export def Status()
   EnsureInstance().Status()
 enddef
 
-export def Plugins(): list<PluginInfo>
+export def Plugins(): list<plug.Info>
   return EnsureInstance().GetPlugins()
 enddef
 
@@ -1950,7 +927,7 @@ export def PluginNames(): list<string>
   return EnsureInstance().GetPluginNames()
 enddef
 
-export def GetPlugin(name: string): PluginInfo
+export def GetPlugin(name: string): plug.Info
   return EnsureInstance().GetPlugin(name)
 enddef
 
@@ -1963,19 +940,19 @@ export def IsPluginInstalled(name: string): bool
 enddef
 
 export def Version(): string
-  return Manager.VERSION
+  return Packix.VERSION
 enddef
 
 def RunCommand(cmd: string, opts: any = null)
   EnsureInstance()
 
-  if cmd ==? 'install'
+  if cmd ==# 'install'
     Install(opts == null ? {} : opts)
-  elseif cmd ==? 'update'
+  elseif cmd ==# 'update'
     Update(opts == null ? {} : opts)
-  elseif cmd ==? 'clean'
+  elseif cmd ==# 'clean'
     Clean()
-  elseif cmd ==? 'status'
+  elseif cmd ==# 'status'
     Status()
   endif
 enddef
@@ -1983,17 +960,17 @@ enddef
 def RunMethod(method: string, direction: string = '')
   EnsureInstance()
 
-  if method ==? 'quit'
+  if method ==# 'quit'
     Instance.Quit()
-  elseif method ==? 'open_sha'
+  elseif method ==# 'open_sha'
     Instance.OpenSha()
-  elseif method ==? 'open_stdout'
+  elseif method ==# 'open_stdout'
     Instance.OpenOutput()
-  elseif method ==? 'goto_plugin'
+  elseif method ==# 'goto_plugin'
     Instance.GotoPlugin(direction)
-  elseif method ==? 'status'
+  elseif method ==# 'status'
     Instance.Status()
-  elseif method ==? 'open_plugin_details'
+  elseif method ==# 'open_plugin_details'
     Instance.OpenPluginDetails()
   endif
 enddef
@@ -2006,7 +983,7 @@ nnoremap <silent> <Plug>(PackixGotoPrevPlugin) <ScriptCmd>RunMethod('goto_plugin
 nnoremap <silent> <Plug>(PackixStatus) <ScriptCmd>RunMethod('status')<CR>
 nnoremap <silent> <Plug>(PackixPluginDetails) <ScriptCmd>RunMethod('open_plugin_details')<CR>
 
-def EnsureInstance(): Manager
+def EnsureInstance(): Packix
   if Instance == null
     if SetupCallback != null && SetupOpts != null
       Init(SetupOpts)
