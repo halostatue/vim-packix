@@ -378,6 +378,8 @@ export class Plugin
     elseif this.headRef ==# 'HEAD' && !this.mainBranch->empty()
       isOnBranch = true
       checkoutCommand = git.CheckoutCommand(this.mainBranch)
+    else
+      isOnBranch = this.headRef ==# this.mainBranch
     endif
 
     var refreshCommand = isOnBranch

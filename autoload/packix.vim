@@ -4,12 +4,12 @@ vim9script
 #
 # Vim 9 plugin manager, available under the MIT license
 #
-# Copyright 2024 Austin Ziegler
+# Copyright 2024-2025 Austin Ziegler
 #
 # - Based on https://github.com/kristijanhusak/vim-packager, copyright
-#   2018–2021 Kristijan Husak and other contributors
+#   2018-2021 Kristijan Husak and other contributors
 # - Partially based on https://github.com/prabirshrestha/async.vim, copyright
-#   2016–2024 Prabir Shrestha and other contributors
+#   2016-2024 Prabir Shrestha and other contributors
 #
 # The MIT License (MIT)
 #
@@ -71,7 +71,7 @@ export class Packix
     'packix'
   ]->join(core.SLASH)
 
-  static const VERSION = '1.1.0'
+  static const VERSION = '1.2.1'
 
   def new(opts: Opts)
     if opts->has_key('dir')

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1 / 2025-02-17
+
+Fixed an issue when updating the checked out repos because of bad defaults.
+
 ## 1.2.0 / 2024-12-02
 
 Rethink the structure. I've been running this for a while and just noticed that
